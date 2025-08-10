@@ -25,6 +25,7 @@ class QueryPlan:
         self.feature_view = feature_view
         self._spark_result_df = None
         self._pandas_result_df = None
+        self._polars_result_df = None
     
     def _execute_spark(self) -> DataFrame:
         """
@@ -47,6 +48,17 @@ class QueryPlan:
         if self._pandas_result_df is None:
             self._pandas_result_df = self.feature_view._build_pandas_query()
         return self._pandas_result_df
+    
+    def _execute_polars(self) -> pl.DataFrame:
+        """
+        Execute the query plan using Polars lazy evaluation
+        
+        Returns:
+            Polars DataFrame
+        """
+        if self._polars_result_df is None:
+            self._polars_result_df = self.feature_view._build_polars_query()
+        return self._polars_result_df
     
     def to_spark(self, spark: Optional[SparkSession] = None) -> DataFrame:
         """
@@ -73,13 +85,12 @@ class QueryPlan:
     
     def to_polars(self) -> pl.DataFrame:
         """
-        Get result as Polars DataFrame
+        Get result as Polars DataFrame using lazy evaluation
         
         Returns:
             Polars DataFrame
         """
-        pandas_df = self.to_pandas()
-        return pl.from_pandas(pandas_df)
+        return self._execute_polars()
     
     def count(self) -> int:
         """
