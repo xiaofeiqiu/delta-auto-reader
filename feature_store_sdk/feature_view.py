@@ -316,5 +316,94 @@ class FeatureView:
         
         return joined_df
     
+    def _build_polars_query(self) -> pl.DataFrame:
+        """
+        Build the joined DataFrame using Polars lazy operations
+        
+        Returns:
+            Polars DataFrame
+        """
+        # Start with base feature group
+        if not self.base.exists():
+            raise ValueError(f"Base feature group {self.base.name} does not exist")
+        
+        result_lf = self.base.read_polars_lazy()
+        
+        # Handle base table projection (select only specified features)
+        base_projections = [p for p in self.source_projections if p.source == self.base]
+        if base_projections:
+            projection = base_projections[0]  # Assume only one base projection
+            # Apply filters to base table
+            result_lf = projection.apply_filters_polars(result_lf)
+            base_features = projection.features.copy()
+        else:
+            base_features = list(result_lf.columns)
+        
+        # Handle joins with other feature groups
+        for projection in self.source_projections:
+            if projection.source != self.base:
+                result_lf = self._polars_join_projection(result_lf, projection)
+                base_features.extend(projection.features)
+        
+        # Select only requested features
+        available_features = [f for f in base_features if f in result_lf.columns]
+        result_lf = result_lf.select(available_features)
+        
+        # Collect lazy frame to DataFrame
+        return result_lf.collect()
+    
+    def _polars_join_projection(self, left_lf: pl.LazyFrame, projection) -> pl.LazyFrame:
+        """
+        Join a projection using Polars lazy operations
+        
+        Args:
+            left_lf: Left LazyFrame
+            projection: Projection to join
+            
+        Returns:
+            Joined LazyFrame
+        """
+        if not projection.source.exists():
+            raise ValueError(f"Feature group {projection.source.name} does not exist")
+        
+        right_lf = projection.source.read_polars_lazy()
+        
+        # Apply filters if specified
+        right_lf = projection.apply_filters_polars(right_lf)
+        
+        # Build join keys
+        if projection.keys_map:
+            left_keys = list(projection.keys_map.keys())
+            right_keys = list(projection.keys_map.values())
+        else:
+            # Use base keys for join
+            left_keys = [key for key in self.base.keys if key in right_lf.columns]
+            right_keys = left_keys
+        
+        if not left_keys:
+            raise ValueError(f"No join condition could be built for {projection.source.name}")
+        
+        # Select only needed columns from right LazyFrame
+        right_select_cols = right_keys + [f for f in projection.features if f not in right_keys]
+        right_lf_selected = right_lf.select(right_select_cols)
+        
+        # Perform join
+        how = "left" if projection.join_type == "left" else "inner"
+        
+        # Handle key mapping for join
+        if left_keys == right_keys:
+            # Same column names
+            joined_lf = left_lf.join(right_lf_selected, on=left_keys, how=how)
+        else:
+            # Different column names
+            joined_lf = left_lf.join(
+                right_lf_selected, 
+                left_on=left_keys, 
+                right_on=right_keys, 
+                how=how
+            )
+        
+        return joined_lf
+    
     def __repr__(self) -> str:
         return f"FeatureView(name='{self.name}', version={self.version}, base='{self.base.name}', projections={len(self.source_projections)})"

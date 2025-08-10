@@ -237,6 +237,53 @@ class Projection:
         
         return df
     
+    def apply_filters_polars(self, lf):
+        """
+        Apply filters to a Polars LazyFrame
+        
+        Args:
+            lf: Polars LazyFrame to filter
+            
+        Returns:
+            Filtered Polars LazyFrame
+        """
+        if not self.filters:
+            return lf
+        
+        # Validate all filters
+        for filter_dict in self.filters:
+            self._validate_filter(filter_dict)
+        
+        import polars as pl
+        
+        for filter_dict in self.filters:
+            column_name = filter_dict["column"]
+            operator = filter_dict["operator"]
+            value = filter_dict.get("value")
+            
+            if operator == "==":
+                lf = lf.filter(pl.col(column_name) == value)
+            elif operator == "!=":
+                lf = lf.filter(pl.col(column_name) != value)
+            elif operator == ">":
+                lf = lf.filter(pl.col(column_name) > value)
+            elif operator == ">=":
+                lf = lf.filter(pl.col(column_name) >= value)
+            elif operator == "<":
+                lf = lf.filter(pl.col(column_name) < value)
+            elif operator == "<=":
+                lf = lf.filter(pl.col(column_name) <= value)
+            elif operator == "in":
+                lf = lf.filter(pl.col(column_name).is_in(value))
+            elif operator == "not_in":
+                lf = lf.filter(~pl.col(column_name).is_in(value))
+            elif operator == "is_null":
+                lf = lf.filter(pl.col(column_name).is_null())
+            elif operator == "is_not_null":
+                lf = lf.filter(pl.col(column_name).is_not_null())
+        
+        return lf
+    
     def __repr__(self) -> str:
         filter_str = f", filters={len(self.filters)}" if self.filters else ""
         return f"Projection(source='{self.source.name}', features={self.features}, join_type='{self.join_type}'{filter_str})"

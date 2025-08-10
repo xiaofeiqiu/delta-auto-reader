@@ -108,6 +108,28 @@ class BatchFeatureGroup:
         """
         return pl.from_pandas(self.read_pandas())
     
+    def read_polars_lazy(self) -> pl.LazyFrame:
+        """
+        Read data from the feature group's Delta table as Polars LazyFrame
+        
+        Returns:
+            Polars LazyFrame for lazy evaluation
+        """
+        # Try to read directly using polars scan for performance
+        try:
+            # Check if we can read delta files directly with polars
+            return pl.scan_delta(self.data_location)
+        except Exception:
+            try:
+                # Fallback: use deltalake package to read then convert to lazy
+                from deltalake import DeltaTable
+                dt = DeltaTable(self.data_location)
+                return pl.from_arrow(dt.to_pyarrow_table()).lazy()
+            except Exception:
+                # Final fallback: convert from pandas but as lazy
+                pandas_df = self.read_pandas()
+                return pl.from_pandas(pandas_df).lazy()
+    
     def exists(self) -> bool:
         """
         Check if the feature group data exists
