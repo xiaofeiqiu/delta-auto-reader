@@ -115,7 +115,6 @@ class FeatureStore:
                 version=version,
                 base=base,
                 source_projections=source_projections or [],
-                spark=self._spark,
                 description=description
             )
         

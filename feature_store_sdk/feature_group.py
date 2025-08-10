@@ -2,8 +2,11 @@
 BatchFeatureGroup class - Represents a feature group with Delta Lake storage
 """
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 from pyspark.sql import SparkSession, DataFrame
+import pandas as pd
+import polars as pl
+from deltalake import DeltaTable
 
 
 class BatchFeatureGroup:
@@ -63,7 +66,7 @@ class BatchFeatureGroup:
     
     def read_data(self) -> DataFrame:
         """
-        Read data from the feature group's Delta table
+        Read data from the feature group's Delta table (Spark mode)
         
         Returns:
             Spark DataFrame
@@ -72,6 +75,31 @@ class BatchFeatureGroup:
             raise ValueError("Spark session is required")
             
         return self._spark.read.format("delta").load(self.data_location)
+    
+    def read_pandas(self) -> pd.DataFrame:
+        """
+        Read data from the feature group's Delta table as Pandas DataFrame
+        
+        Returns:
+            Pandas DataFrame
+        """
+        try:
+            dt = DeltaTable(self.data_location)
+            return dt.to_pandas()
+        except Exception:
+            # Fallback to reading via Spark if deltalake package doesn't work
+            if self._spark is None:
+                raise ValueError("Cannot read Delta table without Spark session or deltalake package")
+            return self.read_data().toPandas()
+    
+    def read_polars(self) -> pl.DataFrame:
+        """
+        Read data from the feature group's Delta table as Polars DataFrame
+        
+        Returns:
+            Polars DataFrame
+        """
+        return pl.from_pandas(self.read_pandas())
     
     def exists(self) -> bool:
         """

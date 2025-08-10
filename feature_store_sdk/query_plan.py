@@ -1,10 +1,10 @@
 """
 QueryPlan class - Executes feature view queries and converts to different formats
 """
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 import pandas as pd
 import polars as pl
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, SparkSession
 
 if TYPE_CHECKING:
     from .feature_view import FeatureView
@@ -23,27 +23,44 @@ class QueryPlan:
             feature_view: FeatureView to execute
         """
         self.feature_view = feature_view
-        self._result_df = None
+        self._spark_result_df = None
+        self._pandas_result_df = None
     
-    def _execute(self) -> DataFrame:
+    def _execute_spark(self) -> DataFrame:
         """
-        Execute the query plan and cache result
+        Execute the query plan using Spark and cache result
         
         Returns:
             Spark DataFrame
         """
-        if self._result_df is None:
-            self._result_df = self.feature_view._build_query()
-        return self._result_df
+        if self._spark_result_df is None:
+            self._spark_result_df = self.feature_view._build_query()
+        return self._spark_result_df
     
-    def to_spark(self) -> DataFrame:
+    def _execute_pandas(self) -> pd.DataFrame:
+        """
+        Execute the query plan and get pandas result (without Spark)
+        
+        Returns:
+            Pandas DataFrame
+        """
+        if self._pandas_result_df is None:
+            self._pandas_result_df = self.feature_view._build_pandas_query()
+        return self._pandas_result_df
+    
+    def to_spark(self, spark: Optional[SparkSession] = None) -> DataFrame:
         """
         Get result as Spark DataFrame
         
+        Args:
+            spark: SparkSession instance (required for Spark output)
+        
         Returns:
             Spark DataFrame
         """
-        return self._execute()
+        if spark is None:
+            raise ValueError("SparkSession must be provided to to_spark() method")
+        return self._execute_spark()
     
     def to_pandas(self) -> pd.DataFrame:
         """
@@ -52,8 +69,7 @@ class QueryPlan:
         Returns:
             Pandas DataFrame
         """
-        spark_df = self._execute()
-        return spark_df.toPandas()
+        return self._execute_pandas()
     
     def to_polars(self) -> pl.DataFrame:
         """
@@ -72,7 +88,7 @@ class QueryPlan:
         Returns:
             Row count
         """
-        return self._execute().count()
+        return self._execute_spark().count()
     
     def show(self, n: int = 20, truncate: bool = True) -> None:
         """
@@ -82,7 +98,7 @@ class QueryPlan:
             n: Number of rows to show
             truncate: Whether to truncate long strings
         """
-        self._execute().show(n, truncate)
+        self._execute_spark().show(n, truncate)
     
     def collect(self) -> list:
         """
@@ -91,7 +107,7 @@ class QueryPlan:
         Returns:
             List of Row objects
         """
-        return self._execute().collect()
+        return self._execute_spark().collect()
     
     def __repr__(self) -> str:
         return f"QueryPlan(feature_view='{self.feature_view.name}')"

@@ -4,6 +4,8 @@ FeatureView class - Handles automatic joins between feature groups
 from typing import List, Optional
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col
+import pandas as pd
+import polars as pl
 
 from .feature_group import BatchFeatureGroup
 from .projection import Projection
@@ -24,7 +26,6 @@ class FeatureView:
         version: int,
         base: BatchFeatureGroup,
         source_projections: List[Projection],
-        spark: SparkSession,
         description: str = ""
     ):
         """
@@ -35,14 +36,12 @@ class FeatureView:
             version: Version number
             base: Base feature group
             source_projections: List of projection configurations
-            spark: Spark session
             description: Optional description
         """
         self.name = name
         self.version = version
         self.base = base
         self.source_projections = source_projections
-        self._spark = spark
         self.description = description
     
     def plan(self) -> QueryPlan:
@@ -167,6 +166,98 @@ class FeatureView:
                     right_key_count = sum(1 for col_name in joined_df.columns if col_name == right_key)
                     if right_key_count > 1:
                         joined_df = joined_df.drop(right_df_selected[right_key])
+        
+        return joined_df
+    
+    def _build_pandas_query(self) -> pd.DataFrame:
+        """
+        Build the joined DataFrame using Pandas operations
+        
+        Returns:
+            Joined Pandas DataFrame
+        """
+        # Start with base feature group
+        if not self.base.exists():
+            raise ValueError(f"Base feature group {self.base.name} does not exist")
+        
+        result_df = self.base.read_pandas()
+        
+        # Handle base table projection (select only specified features)
+        base_projections = [p for p in self.source_projections if p.source == self.base]
+        if base_projections:
+            projection = base_projections[0]  # Assume only one base projection
+            base_features = projection.features.copy()
+        else:
+            base_features = list(result_df.columns)
+        
+        # Handle joins with other feature groups
+        for projection in self.source_projections:
+            if projection.source != self.base:
+                result_df = self._pandas_join_projection(result_df, projection)
+                base_features.extend(projection.features)
+        
+        # Select only requested features
+        available_features = [f for f in base_features if f in result_df.columns]
+        result_df = result_df[available_features]
+        
+        return result_df
+    
+    def _pandas_join_projection(self, left_df: pd.DataFrame, projection) -> pd.DataFrame:
+        """
+        Join a projection using Pandas operations
+        
+        Args:
+            left_df: Left DataFrame
+            projection: Projection to join
+            
+        Returns:
+            Joined DataFrame
+        """
+        if not projection.source.exists():
+            raise ValueError(f"Feature group {projection.source.name} does not exist")
+        
+        right_df = projection.source.read_pandas()
+        
+        # Build join keys
+        if projection.keys_map:
+            left_keys = list(projection.keys_map.keys())
+            right_keys = list(projection.keys_map.values())
+        else:
+            # Use base keys for join
+            left_keys = [key for key in self.base.keys if key in right_df.columns]
+            right_keys = left_keys
+        
+        if not left_keys:
+            raise ValueError(f"No join condition could be built for {projection.source.name}")
+        
+        # Select only needed columns from right DataFrame
+        right_select_cols = right_keys + [f for f in projection.features if f not in right_keys]
+        right_df_selected = right_df[right_select_cols]
+        
+        # Perform join
+        if projection.join_type == "left":
+            how = "left"
+        elif projection.join_type == "inner":
+            how = "inner"
+        else:
+            how = "left"  # default
+        
+        # Handle key mapping for join
+        if left_keys == right_keys:
+            # Same column names
+            joined_df = left_df.merge(right_df_selected, on=left_keys, how=how)
+        else:
+            # Different column names
+            joined_df = left_df.merge(
+                right_df_selected, 
+                left_on=left_keys, 
+                right_on=right_keys, 
+                how=how
+            )
+            # Drop duplicate join columns from right side
+            for right_key in right_keys:
+                if right_key != left_keys[right_keys.index(right_key)]:
+                    joined_df = joined_df.drop(columns=[right_key])
         
         return joined_df
     

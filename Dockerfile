@@ -43,6 +43,7 @@ RUN python3 -m pip install --upgrade pip
 RUN pip install \
     pyspark==3.4.4 \
     delta-spark==2.4.0 \
+    deltalake \
     pandas==2.1.4 \
     polars==0.20.31 \
     pyarrow==14.0.2 \
