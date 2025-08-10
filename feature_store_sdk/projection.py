@@ -16,7 +16,7 @@ class Projection:
         features: List[str],
         keys_map: Optional[Dict[str, str]] = None,
         join_type: str = "inner",
-        filters: Optional[Union[Dict[str, Any], List[Dict[str, Any]], List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
+        filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
     ):
         """
         Initialize Projection
@@ -27,11 +27,7 @@ class Projection:
             keys_map: Mapping of join keys {left_key: right_key}
             join_type: Type of join (inner, left, right, outer)
             filters: Filter conditions to apply to the source data.
-                    Dictionary format:
-                    - Single: {"column": "status", "operator": "==", "value": "ACTIVE"}
-                    - Multiple: [{"column": "age", "operator": ">", "value": 25}, {...}]
-                    
-                    Tuple format (more concise):
+                    Tuple format:
                     - Single: ("status", "==", "ACTIVE")
                     - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                     
@@ -48,22 +44,18 @@ class Projection:
         if self.join_type not in valid_joins:
             raise ValueError(f"join_type must be one of {valid_joins}")
     
-    def _normalize_filters(self, filters: Optional[Union[Dict[str, Any], List[Dict[str, Any]], List[Tuple[str, str, Any]], Tuple[str, str, Any]]]) -> List[Dict[str, Any]]:
+    def _normalize_filters(self, filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]]) -> List[Dict[str, Any]]:
         """
         Normalize filters to a consistent format
         
         Args:
-            filters: Single filter (dict or tuple), or list of filters (dicts or tuples)
+            filters: Single filter tuple, or list of filter tuples
             
         Returns:
             List of filter dictionaries
         """
         if filters is None:
             return []
-        
-        # Handle single dictionary filter
-        if isinstance(filters, dict):
-            return [filters]
         
         # Handle single tuple filter
         if isinstance(filters, tuple):
@@ -73,15 +65,13 @@ class Projection:
         if isinstance(filters, list):
             normalized = []
             for filter_item in filters:
-                if isinstance(filter_item, dict):
-                    normalized.append(filter_item)
-                elif isinstance(filter_item, tuple):
+                if isinstance(filter_item, tuple):
                     normalized.append(self._tuple_to_dict(filter_item))
                 else:
-                    raise ValueError(f"Filter item must be dict or tuple, got {type(filter_item)}")
+                    raise ValueError(f"Filter item must be tuple, got {type(filter_item)}")
             return normalized
         
-        raise ValueError(f"filters must be a dict, tuple, or list of dicts/tuples, got {type(filters)}")
+        raise ValueError(f"filters must be a tuple or list of tuples, got {type(filters)}")
     
     def _tuple_to_dict(self, filter_tuple: Tuple[str, str, Any]) -> Dict[str, Any]:
         """
@@ -253,7 +243,7 @@ def projection(
     features: List[str],
     keys_map: Optional[Dict[str, str]] = None,
     join_type: str = "inner",
-    filters: Optional[Union[Dict[str, Any], List[Dict[str, Any]], List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
+    filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
 ) -> Projection:
     """
     Helper function to create a Projection instance
@@ -264,11 +254,7 @@ def projection(
         keys_map: Mapping of join keys {left_key: right_key}
         join_type: Type of join (inner, left, right, outer)
         filters: Filter conditions to apply to the source data.
-                Dictionary format:
-                - Single: {"column": "status", "operator": "==", "value": "ACTIVE"}
-                - Multiple: [{"column": "age", "operator": ">", "value": 25}, {...}]
-                
-                Tuple format (more concise):
+                Tuple format:
                 - Single: ("status", "==", "ACTIVE")  
                 - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                 

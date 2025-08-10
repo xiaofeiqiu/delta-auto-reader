@@ -71,6 +71,15 @@ class BatchFeatureGroup:
         Returns:
             Spark DataFrame
         """
+        # Try to get active Spark session first, then fall back to stored session
+        try:
+            spark = SparkSession.getActiveSession()
+            if spark is not None:
+                return spark.read.format("delta").load(self.data_location)
+        except:
+            pass
+            
+        # Fall back to stored Spark session
         if self._spark is None:
             raise ValueError("Spark session is required")
             
@@ -88,8 +97,6 @@ class BatchFeatureGroup:
             return dt.to_pandas()
         except Exception:
             # Fallback to reading via Spark if deltalake package doesn't work
-            if self._spark is None:
-                raise ValueError("Cannot read Delta table without Spark session or deltalake package")
             return self.read_data().toPandas()
     
     def read_polars(self) -> pl.DataFrame:
