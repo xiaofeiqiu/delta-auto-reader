@@ -56,47 +56,47 @@ class Transform:
         from pyspark.sql.types import StringType, IntegerType, FloatType, DoubleType
         
         try:
-            # For DataFrame-level transforms (like date calculations), we need special handling for Spark
+            # For DataFrame-level transforms, we need to handle them differently for Spark
             if self.param_count == 1 and (not self.params or self.params[0] in ['df', 'dataframe']):
-                # This is a DataFrame-level transform - for Spark, we convert to pandas, apply, then back
-                pandas_df = df.toPandas()
-                pandas_result = self.func(pandas_df)
+                # This is a DataFrame-level transform - we need to create a UDF that operates on the entire row
+                # Instead of converting to pandas, we'll create a UDF that can access all columns
                 
-                # Create column from pandas result
-                if hasattr(pandas_result, 'tolist'):
-                    # It's a Series
-                    result_list = pandas_result.tolist()
-                else:
-                    # It's a scalar, broadcast it
-                    result_list = [pandas_result] * len(pandas_df)
+                # Get all column names to pass to the UDF
+                all_columns = df.columns
                 
-                # Create a Spark column from the list using a UDF
-                from pyspark.sql.functions import udf, col, lit
-                from pyspark.sql.types import IntegerType, FloatType, StringType
+                # Create a UDF that reconstructs a row-like object for the function
+                def dataframe_transform_udf(*row_values):
+                    # Create a simple row-like dict for the function to use
+                    row_dict = dict(zip(all_columns, row_values))
+                    
+                    # Create a minimal DataFrame-like object for compatibility
+                    class SparkRowDataFrame:
+                        def __init__(self, row_data, columns):
+                            self.data = row_data
+                            self.columns = columns
+                            
+                        def __getitem__(self, key):
+                            return self.data.get(key)
+                            
+                        def get(self, key, default=None):
+                            return self.data.get(key, default)
+                    
+                    row_df = SparkRowDataFrame(row_dict, all_columns)
+                    
+                    try:
+                        result = self.func(row_df)
+                        return result
+                    except Exception as e:
+                        # If the function doesn't work with our mock DataFrame, 
+                        # fallback to passing the row dict directly
+                        return self.func(row_dict)
                 
-                # Determine the return type based on the result
-                if pandas_result.dtype == 'int64' or pandas_result.dtype == 'int32':
-                    return_type = IntegerType()
-                elif pandas_result.dtype == 'float64' or pandas_result.dtype == 'float32':
-                    return_type = FloatType()
-                else:
-                    return_type = StringType()
+                # Determine return type
+                return_type = self._infer_return_type()
+                spark_udf = udf(dataframe_transform_udf, return_type)
                 
-                # Create a UDF that returns the pre-calculated values
-                def transform_udf(idx):
-                    return result_list[idx] if idx < len(result_list) else None
-                
-                transform_udf_spark = udf(transform_udf, return_type)
-                
-                # Use row_number to index into our result list
-                from pyspark.sql.functions import row_number, monotonically_increasing_id
-                from pyspark.sql.window import Window
-                
-                # Add a row index and use it to map to our results
-                windowSpec = Window.orderBy(monotonically_increasing_id())
-                df_with_index = df.withColumn("__row_idx", row_number().over(windowSpec) - 1)
-                
-                return transform_udf_spark(col("__row_idx")).alias(self.name)
+                # Apply UDF with all columns
+                return spark_udf(*[col(c) for c in all_columns]).alias(self.name)
             else:
                 # Function expects individual columns or values
                 # Create UDF for complex transformations
