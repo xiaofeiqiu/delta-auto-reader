@@ -3,6 +3,7 @@ Projection class and helper functions for feature selection and joining
 """
 from typing import List, Dict, Optional, Union, Any, Tuple
 from .feature_group import BatchFeatureGroup
+from .transform import Transform
 
 
 class Projection:
@@ -16,7 +17,8 @@ class Projection:
         features: List[str],
         keys_map: Optional[Dict[str, str]] = None,
         join_type: str = "inner",
-        filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
+        filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
+        transform: Optional[List[Transform]] = None
     ):
         """
         Initialize Projection
@@ -32,12 +34,14 @@ class Projection:
                     - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                     
                     Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null
+            transform: List of Transform instances to apply feature transformations
         """
         self.source = source
         self.features = features
         self.keys_map = keys_map or {}
         self.join_type = join_type.lower()
         self.filters = self._normalize_filters(filters)
+        self.transform = transform or []
         
         # Validate join type
         valid_joins = ["inner", "left", "right", "outer"]
@@ -243,7 +247,8 @@ def projection(
     features: List[str],
     keys_map: Optional[Dict[str, str]] = None,
     join_type: str = "inner",
-    filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None
+    filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
+    transform: Optional[List[Transform]] = None
 ) -> Projection:
     """
     Helper function to create a Projection instance
@@ -259,6 +264,7 @@ def projection(
                 - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                 
                 Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null
+        transform: List of Transform instances to apply feature transformations
         
     Returns:
         Projection instance
@@ -268,5 +274,6 @@ def projection(
         features=features,
         keys_map=keys_map,
         join_type=join_type,
-        filters=filters
+        filters=filters,
+        transform=transform
     )

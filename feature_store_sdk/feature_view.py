@@ -96,6 +96,14 @@ class FeatureView:
                         if feature in result_df.columns:
                             final_columns.append(col(feature))
             
+            # Apply transformations for base projection
+            for transform in projection.transform:
+                try:
+                    transformed_col = transform.apply_spark(result_df)
+                    final_columns.append(transformed_col)
+                except Exception as e:
+                    raise ValueError(f"Failed to apply transform '{transform.name}' in base projection: {e}")
+            
             result_df = result_df.select(*final_columns)
         else:
             # If no base projection specified, select all columns
@@ -147,6 +155,14 @@ class FeatureView:
         for feature in projection.features:
             if feature in right_df.columns:
                 right_select_cols.append(col(feature))
+        
+        # Apply transformations to right DataFrame
+        for transform in projection.transform:
+            try:
+                transformed_col = transform.apply_spark(right_df)
+                right_select_cols.append(transformed_col)
+            except Exception as e:
+                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.source.name}': {e}")
         
         right_df_selected = right_df.select(*right_select_cols)
         
@@ -205,6 +221,22 @@ class FeatureView:
             if projection.source != self.base:
                 result_df = self._pandas_join_projection(result_df, projection)
                 base_features.extend(projection.features)
+                # Add transformed feature names
+                for transform in projection.transform:
+                    base_features.append(transform.name)
+        
+        # Apply transformations for base projection
+        if base_projections:
+            projection = base_projections[0]
+            for transform in projection.transform:
+                try:
+                    transformed_series = transform.apply_pandas(result_df)
+                    # Make sure we have our own copy to avoid SettingWithCopyWarning
+                    result_df = result_df.copy()
+                    result_df[transform.name] = transformed_series
+                    base_features.append(transform.name)
+                except Exception as e:
+                    raise ValueError(f"Failed to apply transform '{transform.name}' in base projection: {e}")
         
         # Select only requested features
         available_features = [f for f in base_features if f in result_df.columns]
@@ -246,6 +278,16 @@ class FeatureView:
         # Select only needed columns from right DataFrame
         right_select_cols = right_keys + [f for f in projection.features if f not in right_keys]
         right_df_selected = right_df[right_select_cols]
+        
+        # Apply transformations to right DataFrame
+        for transform in projection.transform:
+            try:
+                transformed_series = transform.apply_pandas(right_df_selected)
+                # Use .loc to avoid SettingWithCopyWarning
+                right_df_selected = right_df_selected.copy()  # Make sure we have our own copy
+                right_df_selected[transform.name] = transformed_series
+            except Exception as e:
+                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.source.name}': {e}")
         
         # Perform join
         if projection.join_type == "left":

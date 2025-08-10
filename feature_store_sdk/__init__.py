@@ -10,6 +10,7 @@ from .feature_group import BatchFeatureGroup
 from .feature_view import FeatureView
 from .projection import projection
 from .query_plan import QueryPlan
+from .transform import Transform
 
 __version__ = "0.1.0"
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "BatchFeatureGroup", 
     "FeatureView",
     "projection",
-    "QueryPlan"
+    "QueryPlan",
+    "Transform"
 ]
