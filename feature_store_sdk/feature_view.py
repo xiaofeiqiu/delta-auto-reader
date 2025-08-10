@@ -66,13 +66,18 @@ class FeatureView:
         
         result_df = self.base.read_data()
         
+        # Apply filters to base table if specified in base projections
+        base_projections = [p for p in self.source_projections if p.source == self.base]
+        if base_projections:
+            base_projection = base_projections[0]
+            result_df = base_projection.apply_filters(result_df)
+        
         # Handle joins with other feature groups
         for projection in self.source_projections:
             if projection.source != self.base:
                 result_df = self._join_projection(result_df, projection)
         
         # Handle base table projection (select only specified features)
-        base_projections = [p for p in self.source_projections if p.source == self.base]
         if base_projections:
             projection = base_projections[0]  # Assume only one base projection
             
@@ -114,6 +119,9 @@ class FeatureView:
             raise ValueError(f"Feature group {projection.source.name} does not exist")
         
         right_df = projection.source.read_data()
+        
+        # Apply filters if specified
+        right_df = projection.apply_filters(right_df)
         
         # Build join keys list
         if projection.keys_map:
@@ -186,6 +194,8 @@ class FeatureView:
         base_projections = [p for p in self.source_projections if p.source == self.base]
         if base_projections:
             projection = base_projections[0]  # Assume only one base projection
+            # Apply filters to base table
+            result_df = projection.apply_filters(result_df)
             base_features = projection.features.copy()
         else:
             base_features = list(result_df.columns)
@@ -217,6 +227,9 @@ class FeatureView:
             raise ValueError(f"Feature group {projection.source.name} does not exist")
         
         right_df = projection.source.read_pandas()
+        
+        # Apply filters if specified
+        right_df = projection.apply_filters(right_df)
         
         # Build join keys
         if projection.keys_map:
