@@ -8,7 +8,7 @@ import pandas as pd
 import polars as pl
 
 from .feature_group import BatchFeatureGroup
-from .projection import Projection
+from .projection import FeatureSourceProjection
 from .query_plan import QueryPlan
 
 
@@ -25,7 +25,7 @@ class FeatureView:
         name: str,
         version: int,
         base: BatchFeatureGroup,
-        source_projections: List[Projection],
+        source_projections: List[FeatureSourceProjection],
         description: str = ""
     ):
         """
@@ -67,14 +67,14 @@ class FeatureView:
         result_df = self.base.read_data()
         
         # Apply filters to base table if specified in base projections
-        base_projections = [p for p in self.source_projections if p.source == self.base]
+        base_projections = [p for p in self.source_projections if p.feature_group == self.base]
         if base_projections:
             base_projection = base_projections[0]
             result_df = base_projection.apply_filters(result_df)
         
         # Handle joins with other feature groups
         for projection in self.source_projections:
-            if projection.source != self.base:
+            if projection.feature_group != self.base:
                 result_df = self._join_projection(result_df, projection)
         
         # Handle base table projection (select only specified features)
@@ -91,13 +91,13 @@ class FeatureView:
             
             # Add features from joined tables (non-base projections)
             for p in self.source_projections:
-                if p.source != self.base:
+                if p.feature_group != self.base:
                     for feature in p.features:
                         if feature in result_df.columns:
                             final_columns.append(col(feature))
             
             # Apply transformations for base projection
-            for transform in projection.transform:
+            for transform in projection.transforms:
                 try:
                     transformed_col = transform.apply_spark(result_df)
                     final_columns.append(transformed_col)
@@ -112,7 +112,7 @@ class FeatureView:
         
         return result_df
     
-    def _join_projection(self, left_df: DataFrame, projection: Projection) -> DataFrame:
+    def _join_projection(self, left_df: DataFrame, projection: FeatureSourceProjection) -> DataFrame:
         """
         Join a projection with the current DataFrame
         
@@ -123,10 +123,10 @@ class FeatureView:
         Returns:
             Joined DataFrame
         """
-        if not projection.source.exists():
-            raise ValueError(f"Feature group {projection.source.name} does not exist")
+        if not projection.feature_group.exists():
+            raise ValueError(f"Feature group {projection.feature_group.name} does not exist")
         
-        right_df = projection.source.read_data()
+        right_df = projection.feature_group.read_data()
         
         # Apply filters if specified
         right_df = projection.apply_filters(right_df)
@@ -141,7 +141,7 @@ class FeatureView:
             right_keys = join_keys  # Same keys on both sides
         
         if not join_keys:
-            raise ValueError(f"No join condition could be built for {projection.source.name}")
+            raise ValueError(f"No join condition could be built for {projection.feature_group.name}")
         
         # Prepare right DataFrame - select only needed features and join keys
         right_select_cols = []
@@ -157,12 +157,12 @@ class FeatureView:
                 right_select_cols.append(col(feature))
         
         # Apply transformations to right DataFrame
-        for transform in projection.transform:
+        for transform in projection.transforms:
             try:
                 transformed_col = transform.apply_spark(right_df)
                 right_select_cols.append(transformed_col)
             except Exception as e:
-                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.source.name}': {e}")
+                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.feature_group.name}': {e}")
         
         right_df_selected = right_df.select(*right_select_cols)
         
@@ -207,7 +207,7 @@ class FeatureView:
         result_df = self.base.read_pandas()
         
         # Handle base table projection (select only specified features)
-        base_projections = [p for p in self.source_projections if p.source == self.base]
+        base_projections = [p for p in self.source_projections if p.feature_group == self.base]
         if base_projections:
             projection = base_projections[0]  # Assume only one base projection
             # Apply filters to base table
@@ -218,17 +218,17 @@ class FeatureView:
         
         # Handle joins with other feature groups
         for projection in self.source_projections:
-            if projection.source != self.base:
+            if projection.feature_group != self.base:
                 result_df = self._pandas_join_projection(result_df, projection)
                 base_features.extend(projection.features)
                 # Add transformed feature names
-                for transform in projection.transform:
+                for transform in projection.transforms:
                     base_features.append(transform.name)
         
         # Apply transformations for base projection
         if base_projections:
             projection = base_projections[0]
-            for transform in projection.transform:
+            for transform in projection.transforms:
                 try:
                     transformed_series = transform.apply_pandas(result_df)
                     # Make sure we have our own copy to avoid SettingWithCopyWarning
@@ -255,10 +255,10 @@ class FeatureView:
         Returns:
             Joined DataFrame
         """
-        if not projection.source.exists():
-            raise ValueError(f"Feature group {projection.source.name} does not exist")
+        if not projection.feature_group.exists():
+            raise ValueError(f"Feature group {projection.feature_group.name} does not exist")
         
-        right_df = projection.source.read_pandas()
+        right_df = projection.feature_group.read_pandas()
         
         # Apply filters if specified
         right_df = projection.apply_filters(right_df)
@@ -273,21 +273,21 @@ class FeatureView:
             right_keys = left_keys
         
         if not left_keys:
-            raise ValueError(f"No join condition could be built for {projection.source.name}")
+            raise ValueError(f"No join condition could be built for {projection.feature_group.name}")
         
         # Select only needed columns from right DataFrame
         right_select_cols = right_keys + [f for f in projection.features if f not in right_keys]
         right_df_selected = right_df[right_select_cols]
         
         # Apply transformations to right DataFrame
-        for transform in projection.transform:
+        for transform in projection.transforms:
             try:
                 transformed_series = transform.apply_pandas(right_df_selected)
                 # Use .loc to avoid SettingWithCopyWarning
                 right_df_selected = right_df_selected.copy()  # Make sure we have our own copy
                 right_df_selected[transform.name] = transformed_series
             except Exception as e:
-                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.source.name}': {e}")
+                raise ValueError(f"Failed to apply transform '{transform.name}' in projection for '{projection.feature_group.name}': {e}")
         
         # Perform join
         if projection.join_type == "left":
@@ -330,7 +330,7 @@ class FeatureView:
         result_lf = self.base.read_polars_lazy()
         
         # Handle base table projection (select only specified features)
-        base_projections = [p for p in self.source_projections if p.source == self.base]
+        base_projections = [p for p in self.source_projections if p.feature_group == self.base]
         if base_projections:
             projection = base_projections[0]  # Assume only one base projection
             # Apply filters to base table
@@ -341,7 +341,7 @@ class FeatureView:
         
         # Handle joins with other feature groups
         for projection in self.source_projections:
-            if projection.source != self.base:
+            if projection.feature_group != self.base:
                 result_lf = self._polars_join_projection(result_lf, projection)
                 base_features.extend(projection.features)
         
@@ -363,10 +363,10 @@ class FeatureView:
         Returns:
             Joined LazyFrame
         """
-        if not projection.source.exists():
-            raise ValueError(f"Feature group {projection.source.name} does not exist")
+        if not projection.feature_group.exists():
+            raise ValueError(f"Feature group {projection.feature_group.name} does not exist")
         
-        right_lf = projection.source.read_polars_lazy()
+        right_lf = projection.feature_group.read_polars_lazy()
         
         # Apply filters if specified
         right_lf = projection.apply_filters_polars(right_lf)
@@ -381,7 +381,7 @@ class FeatureView:
             right_keys = left_keys
         
         if not left_keys:
-            raise ValueError(f"No join condition could be built for {projection.source.name}")
+            raise ValueError(f"No join condition could be built for {projection.feature_group.name}")
         
         # Select only needed columns from right LazyFrame
         right_select_cols = right_keys + [f for f in projection.features if f not in right_keys]

@@ -6,7 +6,7 @@ and only tuple format is supported.
 import sys
 sys.path.append('.')
 
-from feature_store_sdk.projection import Projection, projection
+from feature_store_sdk.projection import FeatureSourceProjection, feature_source_projection
 from feature_store_sdk import FeatureStore, BatchFeatureGroup
 
 
@@ -28,10 +28,10 @@ def test_tuple_filters_work():
     
     # Test single tuple filter
     try:
-        proj1 = projection(
-            source=mock_fg,
+        proj1 = feature_source_projection(
+            feature_group=mock_fg,
             features=["id", "status"],
-            filters=("status", "==", "ACTIVE")
+            where=("status", "==", "ACTIVE")
         )
         print("✅ Single tuple filter works")
     except Exception as e:
@@ -40,10 +40,10 @@ def test_tuple_filters_work():
     
     # Test multiple tuple filters
     try:
-        proj2 = projection(
-            source=mock_fg,
+        proj2 = feature_source_projection(
+            feature_group=mock_fg,
             features=["id", "age", "country"],
-            filters=[
+            where=[
                 ("age", ">", 25),
                 ("country", "in", ["US", "UK"])
             ]
@@ -73,10 +73,10 @@ def test_dict_filters_removed():
     
     # Test single dictionary filter should fail
     try:
-        proj1 = projection(
-            source=mock_fg,
+        proj1 = feature_source_projection(
+            feature_group=mock_fg,
             features=["id", "status"],
-            filters={"column": "status", "operator": "==", "value": "ACTIVE"}
+            where={"column": "status", "operator": "==", "value": "ACTIVE"}
         )
         print("❌ Dictionary filter still works - should have been removed!")
         return False
@@ -88,10 +88,10 @@ def test_dict_filters_removed():
     
     # Test list of dictionary filters should fail
     try:
-        proj2 = projection(
-            source=mock_fg,
+        proj2 = feature_source_projection(
+            feature_group=mock_fg,
             features=["id", "age"],
-            filters=[
+            where=[
                 {"column": "age", "operator": ">", "value": 25}
             ]
         )

@@ -27,7 +27,7 @@ from delta import configure_spark_with_delta_pip
 
 # Add the parent directory to Python path to import our SDK
 sys.path.append('/workspace')
-from feature_store_sdk import FeatureStore, projection
+from feature_store_sdk import FeatureStore, feature_source_projection
 
 print("📦 All imports successful!")
 
@@ -211,8 +211,8 @@ basic_fv = fs.get_or_create_feature_view(
     version=1, 
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "status", "account_type"]  # Only these 3 features
         )
     ],
@@ -247,27 +247,27 @@ comprehensive_fv = fs.get_or_create_feature_view(
     base=accounts_fg,
     source_projections=[
         # Base account features
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "user_id", "status", "account_type", "credit_limit"]
         ),
         # User demographics - join on user_id
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "segment", "country", "income_bracket"],
             keys_map={"user_id": "user_id"},
             join_type="left"
         ),
         # Transaction features - join on account_id
-        projection(
-            source=transactions_fg,
+        feature_source_projection(
+            feature_group=transactions_fg,
             features=["avg_ticket", "txn_cnt_90d", "total_spend_90d"],
             keys_map={"account_id": "account_id"},
             join_type="left"
         ),
         # Risk scores - join on account_id
-        projection(
-            source=risk_fg,
+        feature_source_projection(
+            feature_group=risk_fg,
             features=["credit_score", "fraud_score", "risk_category"],
             keys_map={"account_id": "account_id"},
             join_type="left"
@@ -310,12 +310,12 @@ format_test_fv = fs.get_or_create_feature_view(
     version=1, 
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "status", "credit_limit"]
         ),
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "country"],
             keys_map={"user_id": "user_id"},
             join_type="left"
@@ -366,27 +366,27 @@ credit_risk_fv = fs.get_or_create_feature_view(
     base=accounts_fg,
     source_projections=[
         # Account basics
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "account_type", "credit_limit", "status"]
         ),
         # Customer demographics for risk assessment
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "income_bracket", "country"],
             keys_map={"user_id": "user_id"},
             join_type="left"
         ),
         # Transaction behavior patterns
-        projection(
-            source=transactions_fg,
+        feature_source_projection(
+            feature_group=transactions_fg,
             features=["txn_cnt_30d", "txn_cnt_90d", "avg_ticket", "total_spend_90d", "distinct_merchants_90d"],
             keys_map={"account_id": "account_id"},
             join_type="left"
         ),
         # Risk indicators
-        projection(
-            source=risk_fg,
+        feature_source_projection(
+            feature_group=risk_fg,
             features=["credit_score", "fraud_score", "risk_category"],
             keys_map={"account_id": "account_id"},
             join_type="left"
@@ -459,10 +459,10 @@ active_accounts_fv = fs.get_or_create_feature_view(
     version=1, 
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "status", "account_type", "credit_limit"],
-            filters=("status", "==", "ACTIVE")
+            where=("status", "==", "ACTIVE")
         )
     ],
     description="Only active accounts"
@@ -499,17 +499,17 @@ mature_users_fv = fs.get_or_create_feature_view(
     base=accounts_fg,
     source_projections=[
         # Base accounts
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "user_id", "account_type"]
         ),
         # Users with age filter using tuple format
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "country", "income_bracket"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            filters=("age", ">", 30)  # Tuple format: (column, operator, value)
+            where=("age", ">", 30)  # Tuple format: (column, operator, value)
         )
     ],
     description="Accounts with users over 30"
@@ -548,17 +548,17 @@ us_uk_fv = fs.get_or_create_feature_view(
     base=accounts_fg,
     source_projections=[
         # Base accounts
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "user_id", "status"]
         ),
         # Users from US or UK only using tuple format
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["country", "age", "segment"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            filters=("country", "in", ["US", "UK"])  # Tuple format for IN filter
+            where=("country", "in", ["US", "UK"])  # Tuple format for IN filter
         )
     ],
     description="Accounts from US and UK users"
@@ -595,16 +595,16 @@ low_risk_high_credit_fv = fs.get_or_create_feature_view(
     version=1, 
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "status", "credit_limit"]
         ),
-        projection(
-            source=risk_fg,
+        feature_source_projection(
+            feature_group=risk_fg,
             features=["credit_score", "risk_category", "fraud_score"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            filters=[  # Multiple filters using tuple format - much cleaner!
+            where=[  # Multiple filters using tuple format - much cleaner!
                 ("credit_score", ">", 700),
                 ("risk_category", "==", "LOW")
             ]
@@ -650,22 +650,22 @@ premium_high_spenders_fv = fs.get_or_create_feature_view(
     base=accounts_fg,
     source_projections=[
         # Tuple format for base table
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "user_id", "account_type", "credit_limit"],
-            filters=("account_type", "==", "PREMIUM")
+            where=("account_type", "==", "PREMIUM")
         ),
         # Tuple format for transaction data
-        projection(
-            source=transactions_fg,
+        feature_source_projection(
+            feature_group=transactions_fg,
             features=["total_spend_90d", "txn_cnt_90d", "avg_ticket"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            filters=("total_spend_90d", ">", 1000)  # Clean tuple format
+            where=("total_spend_90d", ">", 1000)  # Clean tuple format
         ),
         # User demographics without filters
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "income_bracket", "country"],
             keys_map={"user_id": "user_id"},
             join_type="left"
@@ -714,20 +714,20 @@ tuple_showcase_fv = fs.get_or_create_feature_view(
     version=1, 
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "account_type"],
-            filters=[  # Multiple tuple filters
+            where=[  # Multiple tuple filters
                 ("status", "==", "ACTIVE"),           # Equality
                 ("credit_limit", ">=", 5000)         # Range
             ]
         ),
-        projection(
-            source=users_fg,
+        feature_source_projection(
+            feature_group=users_fg,
             features=["age", "country"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            filters=[
+            where=[
                 ("age", ">", 25),                    # Greater than
                 ("country", "in", ["US", "UK", "CA"]) # IN filter
             ]

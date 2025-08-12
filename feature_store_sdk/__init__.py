@@ -8,7 +8,7 @@ with automatic joins between feature groups.
 from .feature_store import FeatureStore
 from .feature_group import BatchFeatureGroup
 from .feature_view import FeatureView
-from .projection import projection
+from .projection import feature_source_projection
 from .query_plan import QueryPlan
 from .transform import Transform
 
@@ -17,7 +17,7 @@ __all__ = [
     "FeatureStore",
     "BatchFeatureGroup", 
     "FeatureView",
-    "projection",
+    "feature_source_projection",
     "QueryPlan",
     "Transform"
 ]

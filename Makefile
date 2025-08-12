@@ -138,6 +138,29 @@ print('✅ Polars version:', pl.__version__); \
 spark.stop(); \
 print('✅ All components working correctly!')"
 
+# Run comprehensive E2E test with Feature Store SDK demo
+.PHONY: test-e2e
+test-e2e: build setup-dirs clean-containers
+	@echo "Running comprehensive E2E test with Feature Store SDK demo..."
+	@echo "This will test all major functionality including:"
+	@echo "  - FeatureSourceProjection (renamed from Projection)"
+	@echo "  - feature_group parameter (renamed from source)"
+	@echo "  - where parameter (renamed from filters)"
+	@echo "  - transforms parameter (renamed from transform)"
+	@echo "  - Multi-table joins, filtering, and output formats"
+	@echo ""
+	docker run --rm \
+		-v $(PWD)/data:/workspace/data \
+		-v $(PWD)/notebooks:/workspace/notebooks \
+		-v $(PWD)/feature_store_sdk:/workspace/feature_store_sdk \
+		$(IMAGE_NAME):$(IMAGE_TAG) python /workspace/notebooks/feature_store_sdk_demo.py
+	@echo ""
+	@echo "🎉 E2E test completed successfully!"
+	@echo "✅ All feature store functionality verified"
+	@echo "✅ All parameter renames working correctly"
+	@echo "✅ All output formats (Spark, Pandas, Polars) tested"
+	@echo "✅ Filter functionality with tuple format tested"
+
 # Show help
 .PHONY: help
 help:
@@ -154,6 +177,7 @@ help:
 	@echo "Setup and Maintenance:"
 	@echo "  make setup-dirs   - Create data and notebooks directories"
 	@echo "  make test         - Test Delta Lake functionality"
+	@echo "  make test-e2e     - Run comprehensive E2E test with Feature Store SDK demo"
 	@echo "  make logs CONTAINER=suffix - Show logs for running container"
 	@echo ""
 	@echo "Cleanup:"

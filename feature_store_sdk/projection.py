@@ -6,76 +6,76 @@ from .feature_group import BatchFeatureGroup
 from .transform import Transform
 
 
-class Projection:
+class FeatureSourceProjection:
     """
     Represents a projection configuration for feature selection and joining
     """
     
     def __init__(
         self,
-        source: BatchFeatureGroup,
+        feature_group: BatchFeatureGroup,
         features: List[str],
         keys_map: Optional[Dict[str, str]] = None,
         join_type: str = "inner",
-        filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
-        transform: Optional[List[Transform]] = None
+        where: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
+        transforms: Optional[List[Transform]] = None
     ):
         """
-        Initialize Projection
+        Initialize FeatureSourceProjection
         
         Args:
-            source: Source feature group
+            feature_group: Source feature group
             features: List of feature columns to select
             keys_map: Mapping of join keys {left_key: right_key}
             join_type: Type of join (inner, left, right, outer)
-            filters: Filter conditions to apply to the source data.
+            where: Filter conditions to apply to the source data.
                     Tuple format:
                     - Single: ("status", "==", "ACTIVE")
                     - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                     
                     Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null
-            transform: List of Transform instances to apply feature transformations
+            transforms: List of Transform instances to apply feature transformations
         """
-        self.source = source
+        self.feature_group = feature_group
         self.features = features
         self.keys_map = keys_map or {}
         self.join_type = join_type.lower()
-        self.filters = self._normalize_filters(filters)
-        self.transform = transform or []
+        self.where = self._normalize_filters(where)
+        self.transforms = transforms or []
         
         # Validate join type
         valid_joins = ["inner", "left", "right", "outer"]
         if self.join_type not in valid_joins:
             raise ValueError(f"join_type must be one of {valid_joins}")
     
-    def _normalize_filters(self, filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]]) -> List[Dict[str, Any]]:
+    def _normalize_filters(self, where: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]]) -> List[Dict[str, Any]]:
         """
-        Normalize filters to a consistent format
+        Normalize where conditions to a consistent format
         
         Args:
-            filters: Single filter tuple, or list of filter tuples
+            where: Single filter tuple, or list of filter tuples
             
         Returns:
             List of filter dictionaries
         """
-        if filters is None:
+        if where is None:
             return []
         
         # Handle single tuple filter
-        if isinstance(filters, tuple):
-            return [self._tuple_to_dict(filters)]
+        if isinstance(where, tuple):
+            return [self._tuple_to_dict(where)]
         
         # Handle list of filters
-        if isinstance(filters, list):
+        if isinstance(where, list):
             normalized = []
-            for filter_item in filters:
+            for filter_item in where:
                 if isinstance(filter_item, tuple):
                     normalized.append(self._tuple_to_dict(filter_item))
                 else:
                     raise ValueError(f"Filter item must be tuple, got {type(filter_item)}")
             return normalized
         
-        raise ValueError(f"filters must be a tuple or list of tuples, got {type(filters)}")
+        raise ValueError(f"where must be a tuple or list of tuples, got {type(where)}")
     
     def _tuple_to_dict(self, filter_tuple: Tuple[str, str, Any]) -> Dict[str, Any]:
         """
@@ -131,11 +131,11 @@ class Projection:
         Returns:
             Filtered DataFrame
         """
-        if not self.filters:
+        if not self.where:
             return df
         
         # Validate all filters
-        for filter_dict in self.filters:
+        for filter_dict in self.where:
             self._validate_filter(filter_dict)
         
         # Detect DataFrame type and apply appropriate filtering
@@ -171,7 +171,7 @@ class Projection:
         """
         from pyspark.sql.functions import col
         
-        for filter_dict in self.filters:
+        for filter_dict in self.where:
             column_name = filter_dict["column"]
             operator = filter_dict["operator"]
             value = filter_dict.get("value")
@@ -209,7 +209,7 @@ class Projection:
         Returns:
             Filtered Pandas DataFrame
         """
-        for filter_dict in self.filters:
+        for filter_dict in self.where:
             column_name = filter_dict["column"]
             operator = filter_dict["operator"]
             value = filter_dict.get("value")
@@ -247,16 +247,16 @@ class Projection:
         Returns:
             Filtered Polars LazyFrame
         """
-        if not self.filters:
+        if not self.where:
             return lf
         
         # Validate all filters
-        for filter_dict in self.filters:
+        for filter_dict in self.where:
             self._validate_filter(filter_dict)
         
         import polars as pl
         
-        for filter_dict in self.filters:
+        for filter_dict in self.where:
             column_name = filter_dict["column"]
             operator = filter_dict["operator"]
             value = filter_dict.get("value")
@@ -285,42 +285,42 @@ class Projection:
         return lf
     
     def __repr__(self) -> str:
-        filter_str = f", filters={len(self.filters)}" if self.filters else ""
-        return f"Projection(source='{self.source.name}', features={self.features}, join_type='{self.join_type}'{filter_str})"
+        filter_str = f", where={len(self.where)}" if self.where else ""
+        return f"FeatureSourceProjection(feature_group='{self.feature_group.name}', features={self.features}, join_type='{self.join_type}'{filter_str})"
 
 
-def projection(
-    source: BatchFeatureGroup,
+def feature_source_projection(
+    feature_group: BatchFeatureGroup,
     features: List[str],
     keys_map: Optional[Dict[str, str]] = None,
     join_type: str = "inner",
-    filters: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
-    transform: Optional[List[Transform]] = None
-) -> Projection:
+    where: Optional[Union[List[Tuple[str, str, Any]], Tuple[str, str, Any]]] = None,
+    transforms: Optional[List[Transform]] = None
+) -> FeatureSourceProjection:
     """
-    Helper function to create a Projection instance
+    Helper function to create a FeatureSourceProjection instance
     
     Args:
-        source: Source feature group
+        feature_group: Source feature group
         features: List of feature columns to select
         keys_map: Mapping of join keys {left_key: right_key}
         join_type: Type of join (inner, left, right, outer)
-        filters: Filter conditions to apply to the source data.
+        where: Filter conditions to apply to the source data.
                 Tuple format:
                 - Single: ("status", "==", "ACTIVE")  
                 - Multiple: [("age", ">", 25), ("country", "in", ["US", "UK"])]
                 
                 Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null
-        transform: List of Transform instances to apply feature transformations
+        transforms: List of Transform instances to apply feature transformations
         
     Returns:
-        Projection instance
+        FeatureSourceProjection instance
     """
-    return Projection(
-        source=source,
+    return FeatureSourceProjection(
+        feature_group=feature_group,
         features=features,
         keys_map=keys_map,
         join_type=join_type,
-        filters=filters,
-        transform=transform
+        where=where,
+        transforms=transforms
     )

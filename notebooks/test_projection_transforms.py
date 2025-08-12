@@ -11,7 +11,7 @@ from delta import configure_spark_with_delta_pip
 # Add the parent directory to Python path to import our SDK
 sys.path.append('/workspace')
 
-from feature_store_sdk import FeatureStore, Transform, projection
+from feature_store_sdk import FeatureStore, Transform, feature_source_projection
 
 print("✅ Testing Projection with Transforms")
 print("=" * 40)
@@ -70,10 +70,10 @@ test_fv = fs.get_or_create_feature_view(
     version=1,
     base=accounts_fg,
     source_projections=[
-        projection(
-            source=accounts_fg,
+        feature_source_projection(
+            feature_group=accounts_fg,
             features=["account_id", "credit_limit", "account_type"],
-            transform=[credit_k_transform, account_tier_transform]
+            transforms=[credit_k_transform, account_tier_transform]
         )
     ],
     description="Test feature view with transforms"
