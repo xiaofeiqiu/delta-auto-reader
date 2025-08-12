@@ -1,22 +1,34 @@
 """
 Enhanced Filter DSL with Python-style operators for intuitive condition building.
 
-This module provides a user-friendly way to build complex filter conditions using
+This module provides a production-ready way to build complex filter conditions using
 familiar Python operators like &, |, and ~.
 
 Examples:
-    # Simple conditions
-    where = [("age", ">", 25), ("status", "==", "ACTIVE")]
+    # Using the recommended c() helper function
+    from feature_store_sdk.filters import c, condition
     
-    # OR conditions
-    where = [("country", "==", "US") | ("country", "==", "UK")]
+    # Simple conditions  
+    where = [c("age", ">", 25), c("status", "==", "ACTIVE")]
+    
+    # OR conditions with operators
+    where = [c("country", "==", "US") | c("country", "==", "UK")]
     
     # Complex nested conditions
     where = [
-        ("age", ">", 25),
-        (("country", "==", "US") | ("segment", "==", "PREMIUM")),
-        ~("status", "==", "BANNED")
+        c("age", ">", 25),
+        (c("country", "==", "US") | c("segment", "==", "PREMIUM")),
+        ~c("status", "==", "BANNED")
     ]
+    
+    # Alternative: Using condition objects directly
+    where = [
+        condition("age", ">", 25) & condition("country", "==", "US"),
+        ~condition("status", "==", "BANNED")
+    ]
+    
+    # Backward compatibility: Legacy tuple syntax still supported
+    where = [("age", ">", 25), ("status", "==", "ACTIVE")]
 """
 
 from typing import Any, List, Tuple, Union
@@ -431,6 +443,33 @@ def not_(condition: BaseCondition) -> NotCondition:
     return NotCondition(condition)
 
 
+def c(*args) -> 'ConditionTuple':
+    """
+    Convenient helper function to create ConditionTuple objects.
+    
+    This is the recommended way to create tuples that support logical operators.
+    
+    Examples:
+        # Simple condition
+        c("age", ">", 25)
+        
+        # Null check
+        c("email", "is_not_null")
+        
+        # Using with operators
+        c("age", ">", 25) & c("country", "==", "US")
+        c("country", "==", "US") | c("country", "==", "UK")
+        ~c("status", "==", "BANNED")
+    
+    Args:
+        *args: Arguments to pass to ConditionTuple constructor
+    
+    Returns:
+        ConditionTuple object that supports &, |, ~ operators
+    """
+    return ConditionTuple(*args)
+
+
 # Allow tuple to be converted to Condition automatically
 def make_condition(condition_input) -> BaseCondition:
     """
@@ -448,60 +487,66 @@ def make_condition(condition_input) -> BaseCondition:
         raise ValueError(f"Cannot convert {type(condition_input)} to condition")
 
 
-# Override tuple methods to support operators (this is a bit hacky but user-friendly)
+# Production-ready tuple class for condition building
 class ConditionTuple(tuple):
     """
-    A tuple subclass that can be used with logical operators.
-    This allows users to write: ("age", ">", 25) | ("country", "==", "US")
+    A production-ready tuple subclass that supports logical operators for building filter conditions.
+    
+    This class allows users to write intuitive filter expressions using tuples:
+        where = [
+            ConditionTuple("age", ">", 25) | ConditionTuple("country", "==", "US"),
+            ~ConditionTuple("status", "==", "BANNED")
+        ]
+    
+    Or more commonly, using the c() helper function:
+        from feature_store_sdk.filters import c
+        where = [
+            c("age", ">", 25) | c("country", "==", "US"),
+            ~c("status", "==", "BANNED")
+        ]
     """
     
     def __new__(cls, *args):
+        """Create a new ConditionTuple instance."""
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            # Handle case where a single tuple/list is passed
+            return super().__new__(cls, args[0])
         return super().__new__(cls, args)
     
     def __and__(self, other):
-        left = make_condition(self)
-        right = make_condition(other)
+        """Support for & operator (AND logic)."""
+        left = self._to_condition()
+        right = self._convert_operand(other)
         return left & right
     
     def __or__(self, other):
-        left = make_condition(self)
-        right = make_condition(other)
+        """Support for | operator (OR logic)."""
+        left = self._to_condition()
+        right = self._convert_operand(other)
         return left | right
     
     def __invert__(self):
-        return ~make_condition(self)
-
-
-# Monkey patch tuple to support operators (alternative approach)
-def _enhance_tuple_for_conditions():
-    """
-    This function adds operator support to regular tuples.
-    It's a bit of a hack but provides the best user experience.
-    """
-    original_tuple = tuple
+        """Support for ~ operator (NOT logic)."""
+        return ~self._to_condition()
     
-    def tuple_and(self, other):
-        if len(self) >= 2 and isinstance(self[1], str):  # Looks like a condition tuple
-            left = make_condition(self)
-            right = make_condition(other)
-            return left & right
+    def _to_condition(self) -> BaseCondition:
+        """Convert this tuple to a Condition object."""
+        return make_condition(self)
+    
+    def _convert_operand(self, other) -> BaseCondition:
+        """Convert the other operand to a BaseCondition."""
+        if isinstance(other, BaseCondition):
+            return other
+        elif isinstance(other, (tuple, ConditionTuple)):
+            return make_condition(other)
         else:
-            raise TypeError("unsupported operand type(s) for &")
+            raise TypeError(f"unsupported operand type for logical operation: {type(other)}")
     
-    def tuple_or(self, other):
-        if len(self) >= 2 and isinstance(self[1], str):  # Looks like a condition tuple
-            left = make_condition(self)
-            right = make_condition(other)
-            return left | right
+    def __repr__(self) -> str:
+        """String representation that shows this is a ConditionTuple."""
+        if len(self) == 2:
+            return f"c({self[0]!r}, {self[1]!r})"
+        elif len(self) == 3:
+            return f"c({self[0]!r}, {self[1]!r}, {self[2]!r})"
         else:
-            raise TypeError("unsupported operand type(s) for |")
-    
-    def tuple_invert(self):
-        if len(self) >= 2 and isinstance(self[1], str):  # Looks like a condition tuple
-            return ~make_condition(self)
-        else:
-            raise TypeError("bad operand type for unary ~")
-    
-    # Note: This monkey patching approach is generally not recommended
-    # in production code, but it provides the best user experience.
-    # In a real implementation, you might want to use a custom tuple class instead.
+            return f"c{super().__repr__()}"
