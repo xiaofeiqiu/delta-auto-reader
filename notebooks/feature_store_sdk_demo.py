@@ -462,7 +462,7 @@ active_accounts_fv = fs.get_or_create_feature_view(
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "status", "account_type", "credit_limit"],
-            where=[c("status", "==", "ACTIVE")]
+            where=c("status", "==", "ACTIVE")
         )
     ],
     description="Only active accounts"
@@ -509,7 +509,7 @@ mature_users_fv = fs.get_or_create_feature_view(
             features=["age", "country", "income_bracket"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            where=[c("age", ">", 30)]  # ConditionTuple format: c(column, operator, value)
+            where=c("age", ">", 30)  # ConditionTuple format: c(column, operator, value)
         )
     ],
     description="Accounts with users over 30"
@@ -558,7 +558,7 @@ us_uk_fv = fs.get_or_create_feature_view(
             features=["country", "age", "segment"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            where=[c("country", "in", ["US", "UK"])]  # ConditionTuple format for IN filter
+            where=c("country", "in", ["US", "UK"])  # ConditionTuple format for IN filter
         )
     ],
     description="Accounts from US and UK users"
@@ -604,10 +604,7 @@ low_risk_high_credit_fv = fs.get_or_create_feature_view(
             features=["credit_score", "risk_category", "fraud_score"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            where=[  # Multiple filters using ConditionTuple format - much cleaner!
-                c("credit_score", ">", 700),
-                c("risk_category", "==", "LOW")
-            ]
+            where=c("credit_score", ">", 700) & c("risk_category", "==", "LOW")  # Multiple filters using ConditionTuple format
         )
     ],
     description="High credit score, low risk accounts"
@@ -653,7 +650,7 @@ premium_high_spenders_fv = fs.get_or_create_feature_view(
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "user_id", "account_type", "credit_limit"],
-            where=[c("account_type", "==", "PREMIUM")]
+            where=c("account_type", "==", "PREMIUM")
         ),
         # ConditionTuple format for transaction data
         feature_source_projection(
@@ -661,7 +658,7 @@ premium_high_spenders_fv = fs.get_or_create_feature_view(
             features=["total_spend_90d", "txn_cnt_90d", "avg_ticket"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            where=[c("total_spend_90d", ">", 1000)]  # Clean ConditionTuple format
+            where=c("total_spend_90d", ">", 1000)  # Clean ConditionTuple format
         ),
         # User demographics without filters
         feature_source_projection(
@@ -717,20 +714,14 @@ tuple_showcase_fv = fs.get_or_create_feature_view(
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "account_type"],
-            where=[  # Multiple ConditionTuple filters
-                c("status", "==", "ACTIVE"),           # Equality
-                c("credit_limit", ">=", 5000)         # Range
-            ]
+            where=c("status", "==", "ACTIVE") & c("credit_limit", ">=", 5000)  # Multiple ConditionTuple filters
         ),
         feature_source_projection(
             feature_group=users_fg,
             features=["age", "country"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            where=[
-                c("age", ">", 25),                    # Greater than
-                c("country", "in", ["US", "UK", "CA"]) # IN filter
-            ]
+            where=c("age", ">", 25) & c("country", "in", ["US", "UK", "CA"])  # Multiple filters
         )
     ],
     description="Demonstrating all tuple filter types"

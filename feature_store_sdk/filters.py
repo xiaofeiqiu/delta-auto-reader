@@ -318,14 +318,15 @@ class FilterParser:
     """
     
     @staticmethod
-    def parse_where_conditions(where: Union[List['ConditionTuple'], None]) -> Union[BaseCondition, None]:
+    def parse_where_conditions(where: Union['ConditionTuple', BaseCondition, None]) -> Union[BaseCondition, None]:
         """
-        Parse where conditions from List[ConditionTuple].
+        Parse where conditions from ConditionTuple or BaseCondition.
         
         Args:
             where: Can be:
                 - None: No filtering
-                - List[ConditionTuple]: List of ConditionTuple objects (AND by default)
+                - ConditionTuple: Single ConditionTuple object
+                - BaseCondition: Complex condition from combining ConditionTuples with & and | operators
         
         Returns:
             Parsed condition object or None
@@ -333,29 +334,13 @@ class FilterParser:
         if where is None:
             return None
         
-        if isinstance(where, list):
-            return FilterParser._parse_list(where)
+        if isinstance(where, ConditionTuple):
+            return where._to_condition()
         
-        raise ValueError(f"Unsupported where condition type: {type(where)}. Only List[ConditionTuple] is supported.")
-    
-    
-    @staticmethod
-    def _parse_list(condition_list: List['ConditionTuple']) -> BaseCondition:
-        """Parse a list of ConditionTuple conditions (AND by default)"""
-        if not condition_list:
-            raise ValueError("Empty condition list")
+        if isinstance(where, BaseCondition):
+            return where
         
-        parsed_conditions = []
-        for item in condition_list:
-            if isinstance(item, ConditionTuple):
-                parsed_conditions.append(item._to_condition())
-            else:
-                raise ValueError(f"Invalid condition item type: {type(item)}. Only ConditionTuple objects are supported.")
-        
-        if len(parsed_conditions) == 1:
-            return parsed_conditions[0]
-        else:
-            return AndCondition(*parsed_conditions)
+        raise ValueError(f"Unsupported where condition type: {type(where)}. Only ConditionTuple or BaseCondition is supported.")
 
 
 
