@@ -10,7 +10,8 @@ from delta import configure_spark_with_delta_pip
 
 # Add feature store SDK to path
 sys.path.append('.')
-from feature_store_sdk import FeatureStore, projection
+from feature_store_sdk import FeatureStore, c
+from feature_store_sdk.projection import feature_source_projection
 
 def main():
     print("🧪 Testing Filter Functionality")
@@ -59,10 +60,10 @@ def main():
             version=1,
             base=accounts_fg,
             source_projections=[
-                projection(
-                    source=accounts_fg,
+                feature_source_projection(
+                    feature_group=accounts_fg,
                     features=["account_id", "status", "credit_limit"],
-                    filters=("status", "==", "ACTIVE")  # Tuple format
+                    where=[c("status", "==", "ACTIVE")]  # ConditionTuple format
                 )
             ]
         )

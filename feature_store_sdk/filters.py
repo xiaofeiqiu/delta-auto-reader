@@ -5,8 +5,8 @@ This module provides a production-ready way to build complex filter conditions u
 familiar Python operators like &, |, and ~.
 
 Examples:
-    # Using the recommended c() helper function
-    from feature_store_sdk.filters import c, condition
+    # Using the c() helper function
+    from feature_store_sdk.filters import c
     
     # Simple conditions  
     where = [c("age", ">", 25), c("status", "==", "ACTIVE")]
@@ -20,18 +20,9 @@ Examples:
         (c("country", "==", "US") | c("segment", "==", "PREMIUM")),
         ~c("status", "==", "BANNED")
     ]
-    
-    # Alternative: Using condition objects directly
-    where = [
-        condition("age", ">", 25) & condition("country", "==", "US"),
-        ~condition("status", "==", "BANNED")
-    ]
-    
-    # Backward compatibility: Legacy tuple syntax still supported
-    where = [("age", ">", 25), ("status", "==", "ACTIVE")]
 """
 
-from typing import Any, List, Tuple, Union
+from typing import Any, List, Union
 from abc import ABC, abstractmethod
 
 
@@ -327,16 +318,14 @@ class FilterParser:
     """
     
     @staticmethod
-    def parse_where_conditions(where: Union[List, Tuple, BaseCondition, None]) -> Union[BaseCondition, None]:
+    def parse_where_conditions(where: Union[List['ConditionTuple'], None]) -> Union[BaseCondition, None]:
         """
-        Parse where conditions from various formats.
+        Parse where conditions from List[ConditionTuple].
         
         Args:
             where: Can be:
                 - None: No filtering
-                - List: List of conditions (AND by default)
-                - Tuple: Single condition tuple
-                - BaseCondition: Already parsed condition
+                - List[ConditionTuple]: List of ConditionTuple objects (AND by default)
         
         Returns:
             Parsed condition object or None
@@ -344,103 +333,30 @@ class FilterParser:
         if where is None:
             return None
         
-        if isinstance(where, BaseCondition):
-            return where
-        
-        if isinstance(where, tuple):
-            return FilterParser._parse_tuple(where)
-        
         if isinstance(where, list):
             return FilterParser._parse_list(where)
         
-        raise ValueError(f"Unsupported where condition type: {type(where)}")
+        raise ValueError(f"Unsupported where condition type: {type(where)}. Only List[ConditionTuple] is supported.")
+    
     
     @staticmethod
-    def _parse_tuple(condition_tuple: Tuple) -> Condition:
-        """Parse a single condition tuple"""
-        if len(condition_tuple) == 2 and condition_tuple[1] in ["is_null", "is_not_null"]:
-            column, operator = condition_tuple
-            return Condition(column, operator)
-        elif len(condition_tuple) == 3:
-            column, operator, value = condition_tuple
-            return Condition(column, operator, value)
-        else:
-            raise ValueError(f"Invalid condition tuple format: {condition_tuple}")
-    
-    @staticmethod
-    def _parse_list(condition_list: List) -> BaseCondition:
-        """Parse a list of conditions (AND by default)"""
+    def _parse_list(condition_list: List['ConditionTuple']) -> BaseCondition:
+        """Parse a list of ConditionTuple conditions (AND by default)"""
         if not condition_list:
             raise ValueError("Empty condition list")
         
         parsed_conditions = []
         for item in condition_list:
-            if isinstance(item, BaseCondition):
-                parsed_conditions.append(item)
-            elif isinstance(item, tuple):
-                parsed_conditions.append(FilterParser._parse_tuple(item))
+            if isinstance(item, ConditionTuple):
+                parsed_conditions.append(item._to_condition())
             else:
-                raise ValueError(f"Invalid condition item type: {type(item)}")
+                raise ValueError(f"Invalid condition item type: {type(item)}. Only ConditionTuple objects are supported.")
         
         if len(parsed_conditions) == 1:
             return parsed_conditions[0]
         else:
             return AndCondition(*parsed_conditions)
 
-
-# Convenience functions for creating conditions
-def condition(column: str, operator: str, value: Any = None) -> Condition:
-    """
-    Create a single condition.
-    
-    Args:
-        column: Column name
-        operator: Comparison operator
-        value: Value to compare against
-    
-    Returns:
-        Condition object
-    """
-    return Condition(column, operator, value)
-
-
-def and_(*conditions: BaseCondition) -> AndCondition:
-    """
-    Create an AND combination of conditions.
-    
-    Args:
-        *conditions: Conditions to combine with AND
-    
-    Returns:
-        AndCondition object
-    """
-    return AndCondition(*conditions)
-
-
-def or_(*conditions: BaseCondition) -> OrCondition:
-    """
-    Create an OR combination of conditions.
-    
-    Args:
-        *conditions: Conditions to combine with OR
-    
-    Returns:
-        OrCondition object
-    """
-    return OrCondition(*conditions)
-
-
-def not_(condition: BaseCondition) -> NotCondition:
-    """
-    Create a NOT (negation) of a condition.
-    
-    Args:
-        condition: Condition to negate
-    
-    Returns:
-        NotCondition object
-    """
-    return NotCondition(condition)
 
 
 def c(*args) -> 'ConditionTuple':
@@ -470,21 +386,27 @@ def c(*args) -> 'ConditionTuple':
     return ConditionTuple(*args)
 
 
-# Allow tuple to be converted to Condition automatically
+# Convert ConditionTuple to Condition automatically
 def make_condition(condition_input) -> BaseCondition:
     """
-    Convert various inputs into condition objects.
+    Convert ConditionTuple to condition objects.
     
-    This is a helper function that allows users to use tuples
-    and have them automatically converted to Condition objects
-    so they can use the & | ~ operators.
+    This is a helper function that converts ConditionTuple objects
+    to Condition objects so they can use the & | ~ operators.
     """
     if isinstance(condition_input, BaseCondition):
         return condition_input
-    elif isinstance(condition_input, tuple):
-        return FilterParser._parse_tuple(condition_input)
+    elif isinstance(condition_input, ConditionTuple):
+        if len(condition_input) == 2 and condition_input[1] in ["is_null", "is_not_null"]:
+            column, operator = condition_input
+            return Condition(column, operator)
+        elif len(condition_input) == 3:
+            column, operator, value = condition_input
+            return Condition(column, operator, value)
+        else:
+            raise ValueError(f"Invalid ConditionTuple format: {condition_input}")
     else:
-        raise ValueError(f"Cannot convert {type(condition_input)} to condition")
+        raise ValueError(f"Cannot convert {type(condition_input)} to condition. Only ConditionTuple is supported.")
 
 
 # Production-ready tuple class for condition building
@@ -537,7 +459,7 @@ class ConditionTuple(tuple):
         """Convert the other operand to a BaseCondition."""
         if isinstance(other, BaseCondition):
             return other
-        elif isinstance(other, (tuple, ConditionTuple)):
+        elif isinstance(other, ConditionTuple):
             return make_condition(other)
         else:
             raise TypeError(f"unsupported operand type for logical operation: {type(other)}")

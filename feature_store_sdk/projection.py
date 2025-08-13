@@ -1,7 +1,7 @@
 """
 Projection class and helper functions for feature selection and joining
 """
-from typing import List, Dict, Optional, Union, Any, Tuple
+from typing import List, Dict, Optional, Union, Any
 from .feature_group import BatchFeatureGroup
 from .transform import Transform
 from .filters import FilterParser, BaseCondition
@@ -18,7 +18,7 @@ class FeatureSourceProjection:
         features: List[str],
         keys_map: Optional[Dict[str, str]] = None,
         join_type: str = "inner",
-        where: Optional[Union[List, Tuple, BaseCondition]] = None,
+        where: Optional[List] = None,
         transforms: Optional[List[Transform]] = None
     ):
         """
@@ -30,11 +30,11 @@ class FeatureSourceProjection:
             keys_map: Mapping of join keys {left_key: right_key}
             join_type: Type of join (inner, left, right, outer)
             where: Filter conditions to apply to the source data.
-                    Supports multiple formats:
-                    - Simple: [("age", ">", 25), ("status", "==", "ACTIVE")]
-                    - OR logic: [("country", "==", "US") | ("country", "==", "UK")]
-                    - Complex: [("age", ">", 25), (("country", "==", "US") | ("segment", "==", "PREMIUM"))]
-                    - NOT logic: [~("status", "==", "BANNED")]
+                    Must be a List[ConditionTuple] using the c() helper function:
+                    - Simple: [c("age", ">", 25), c("status", "==", "ACTIVE")]
+                    - OR logic: [c("country", "==", "US") | c("country", "==", "UK")]
+                    - Complex: [c("age", ">", 25), (c("country", "==", "US") | c("segment", "==", "PREMIUM"))]
+                    - NOT logic: [~c("status", "==", "BANNED")]
                     
                     Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null, between, starts_with, ends_with, contains
             transforms: List of Transform instances to apply feature transformations
@@ -114,7 +114,7 @@ def feature_source_projection(
     features: List[str],
     keys_map: Optional[Dict[str, str]] = None,
     join_type: str = "inner",
-    where: Optional[Union[List, Tuple, BaseCondition]] = None,
+    where: Optional[List] = None,
     transforms: Optional[List[Transform]] = None
 ) -> FeatureSourceProjection:
     """
@@ -126,11 +126,11 @@ def feature_source_projection(
         keys_map: Mapping of join keys {left_key: right_key}
         join_type: Type of join (inner, left, right, outer)
         where: Filter conditions to apply to the source data.
-                Supports multiple formats:
-                - Simple: [("age", ">", 25), ("status", "==", "ACTIVE")]
-                - OR logic: [("country", "==", "US") | ("country", "==", "UK")]
-                - Complex: [("age", ">", 25), (("country", "==", "US") | ("segment", "==", "PREMIUM"))]
-                - NOT logic: [~("status", "==", "BANNED")]
+                Must be a List[ConditionTuple] using the c() helper function:
+                - Simple: [c("age", ">", 25), c("status", "==", "ACTIVE")]
+                - OR logic: [c("country", "==", "US") | c("country", "==", "UK")]
+                - Complex: [c("age", ">", 25), (c("country", "==", "US") | c("segment", "==", "PREMIUM"))]
+                - NOT logic: [~c("status", "==", "BANNED")]
                 
                 Supported operators: ==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null, between, starts_with, ends_with, contains
         transforms: List of Transform instances to apply feature transformations

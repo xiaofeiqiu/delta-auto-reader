@@ -9,7 +9,7 @@
 # - ✅ Delta Lake storage format
 # - ✅ Automatic joins between feature groups
 # - ✅ Precise feature selection via projections
-# - ✅ **Clean filter syntax: Tuple `("age", ">", 30)` format**
+# - ✅ **Clean filter syntax: ConditionTuple `[c("age", ">", 30)]` format**
 # - ✅ Multiple output formats: Spark, Pandas, Polars
 # - ✅ Simple API without over-engineering
 
@@ -27,7 +27,7 @@ from delta import configure_spark_with_delta_pip
 
 # Add the parent directory to Python path to import our SDK
 sys.path.append('/workspace')
-from feature_store_sdk import FeatureStore, feature_source_projection
+from feature_store_sdk import FeatureStore, feature_source_projection, c
 
 print("📦 All imports successful!")
 
@@ -452,8 +452,8 @@ spark_result.printSchema()
 print("🧪 Test 6: Filter Functionality")
 print("=" * 32)
 
-# Test 6.1: Single equality filter - only ACTIVE accounts (tuple format)
-print("\n📋 Test 6.1: Single Equality Filter - Tuple Format")
+# Test 6.1: Single equality filter - only ACTIVE accounts (ConditionTuple format)
+print("\n📋 Test 6.1: Single Equality Filter - ConditionTuple Format")
 active_accounts_fv = fs.get_or_create_feature_view(
     name="active_accounts_only", 
     version=1, 
@@ -462,7 +462,7 @@ active_accounts_fv = fs.get_or_create_feature_view(
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "status", "account_type", "credit_limit"],
-            where=("status", "==", "ACTIVE")
+            where=[c("status", "==", "ACTIVE")]
         )
     ],
     description="Only active accounts"
@@ -491,8 +491,8 @@ print(f"   ✅ Polars filter working: {all(active_polars['status'] == 'ACTIVE')}
 print("   Sample Polars data:")
 print(active_polars.head(3))
 
-# Test 6.2: Range filter - age > 30 (tuple format)
-print("\n📋 Test 6.2: Range Filter - Tuple Format")
+# Test 6.2: Range filter - age > 30 (ConditionTuple format)
+print("\n📋 Test 6.2: Range Filter - ConditionTuple Format")
 mature_users_fv = fs.get_or_create_feature_view(
     name="mature_users_features", 
     version=1, 
@@ -503,13 +503,13 @@ mature_users_fv = fs.get_or_create_feature_view(
             feature_group=accounts_fg,
             features=["account_id", "user_id", "account_type"]
         ),
-        # Users with age filter using tuple format
+        # Users with age filter using ConditionTuple format
         feature_source_projection(
             feature_group=users_fg,
             features=["age", "country", "income_bracket"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            where=("age", ">", 30)  # Tuple format: (column, operator, value)
+            where=[c("age", ">", 30)]  # ConditionTuple format: c(column, operator, value)
         )
     ],
     description="Accounts with users over 30"
@@ -540,8 +540,8 @@ print(f"   ✅ Polars age filter working: {all(mature_polars_ages > 30) if len(m
 print("   Sample Polars data:")
 print(mature_polars.head(3))
 
-# Test 6.3: IN filter - specific countries (tuple format)
-print("\n📋 Test 6.3: IN Filter - Tuple Format")
+# Test 6.3: IN filter - specific countries (ConditionTuple format)
+print("\n📋 Test 6.3: IN Filter - ConditionTuple Format")
 us_uk_fv = fs.get_or_create_feature_view(
     name="us_uk_accounts", 
     version=1, 
@@ -552,13 +552,13 @@ us_uk_fv = fs.get_or_create_feature_view(
             feature_group=accounts_fg,
             features=["account_id", "user_id", "status"]
         ),
-        # Users from US or UK only using tuple format
+        # Users from US or UK only using ConditionTuple format
         feature_source_projection(
             feature_group=users_fg,
             features=["country", "age", "segment"],
             keys_map={"user_id": "user_id"},
             join_type="left",
-            where=("country", "in", ["US", "UK"])  # Tuple format for IN filter
+            where=[c("country", "in", ["US", "UK"])]  # ConditionTuple format for IN filter
         )
     ],
     description="Accounts from US and UK users"
@@ -588,8 +588,8 @@ print(f"   ✅ Polars IN filter working: {set(polars_countries).issubset({'US', 
 print("   Sample Polars data:")
 print(us_uk_polars.head(3))
 
-# Test 6.4: Multiple filters using tuple format
-print("\n📋 Test 6.4: Multiple Filters - Clean Tuple Format")
+# Test 6.4: Multiple filters using ConditionTuple format
+print("\n📋 Test 6.4: Multiple Filters - Clean ConditionTuple Format")
 low_risk_high_credit_fv = fs.get_or_create_feature_view(
     name="low_risk_high_credit", 
     version=1, 
@@ -604,9 +604,9 @@ low_risk_high_credit_fv = fs.get_or_create_feature_view(
             features=["credit_score", "risk_category", "fraud_score"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            where=[  # Multiple filters using tuple format - much cleaner!
-                ("credit_score", ">", 700),
-                ("risk_category", "==", "LOW")
+            where=[  # Multiple filters using ConditionTuple format - much cleaner!
+                c("credit_score", ">", 700),
+                c("risk_category", "==", "LOW")
             ]
         )
     ],
@@ -642,26 +642,26 @@ print(f"   ✅ Polars multiple filters working: Risk categories LOW: {all(polars
 print("   Sample Polars data:")
 print(filtered_polars.head(3))
 
-# Test 6.5: Complex scenario using tuple format
-print("\n📋 Test 6.5: Complex Business Scenario - Pure Tuple Format")
+# Test 6.5: Complex scenario using ConditionTuple format
+print("\n📋 Test 6.5: Complex Business Scenario - Pure ConditionTuple Format")
 premium_high_spenders_fv = fs.get_or_create_feature_view(
     name="premium_high_spenders", 
     version=1, 
     base=accounts_fg,
     source_projections=[
-        # Tuple format for base table
+        # ConditionTuple format for base table
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "user_id", "account_type", "credit_limit"],
-            where=("account_type", "==", "PREMIUM")
+            where=[c("account_type", "==", "PREMIUM")]
         ),
-        # Tuple format for transaction data
+        # ConditionTuple format for transaction data
         feature_source_projection(
             feature_group=transactions_fg,
             features=["total_spend_90d", "txn_cnt_90d", "avg_ticket"],
             keys_map={"account_id": "account_id"},
             join_type="left",
-            where=("total_spend_90d", ">", 1000)  # Clean tuple format
+            where=[c("total_spend_90d", ">", 1000)]  # Clean ConditionTuple format
         ),
         # User demographics without filters
         feature_source_projection(
@@ -705,21 +705,21 @@ print(f"   ✅ Polars complex filters working: All spending > 1000: {all(polars_
 print("   Sample Polars data:")
 print(business_polars.head(3))
 
-# Test 6.6: Showcase all tuple format capabilities
-print("\n📋 Test 6.6: Complete Tuple Format Showcase")
-print("All filter types using the concise tuple syntax")
+# Test 6.6: Showcase all ConditionTuple format capabilities
+print("\n📋 Test 6.6: Complete ConditionTuple Format Showcase")
+print("All filter types using the concise ConditionTuple syntax")
 
 tuple_showcase_fv = fs.get_or_create_feature_view(
-    name="tuple_format_showcase", 
+    name="conditiontuple_format_showcase", 
     version=1, 
     base=accounts_fg,
     source_projections=[
         feature_source_projection(
             feature_group=accounts_fg,
             features=["account_id", "account_type"],
-            where=[  # Multiple tuple filters
-                ("status", "==", "ACTIVE"),           # Equality
-                ("credit_limit", ">=", 5000)         # Range
+            where=[  # Multiple ConditionTuple filters
+                c("status", "==", "ACTIVE"),           # Equality
+                c("credit_limit", ">=", 5000)         # Range
             ]
         ),
         feature_source_projection(
@@ -728,8 +728,8 @@ tuple_showcase_fv = fs.get_or_create_feature_view(
             keys_map={"user_id": "user_id"},
             join_type="left",
             where=[
-                ("age", ">", 25),                    # Greater than
-                ("country", "in", ["US", "UK", "CA"]) # IN filter
+                c("age", ">", 25),                    # Greater than
+                c("country", "in", ["US", "UK", "CA"]) # IN filter
             ]
         )
     ],
@@ -737,23 +737,23 @@ tuple_showcase_fv = fs.get_or_create_feature_view(
 )
 
 tuple_result = tuple_showcase_fv.plan().to_pandas()
-print(f"📊 Accounts with multiple tuple filters: {len(tuple_result)}")
+print(f"📊 Accounts with multiple ConditionTuple filters: {len(tuple_result)}")
 print("✅ Tuple syntax examples:")
-print('   - Equality: ("status", "==", "ACTIVE")')
-print('   - Range: ("credit_limit", ">=", 5000)')
-print('   - Greater than: ("age", ">", 25)')
-print('   - IN filter: ("country", "in", ["US", "UK", "CA"])')
+print('   - Equality: c("status", "==", "ACTIVE")')
+print('   - Range: c("credit_limit", ">=", 5000)')
+print('   - Greater than: c("age", ">", 25)')
+print('   - IN filter: c("country", "in", ["US", "UK", "CA"])')
 print(tuple_result)
 
 # Test Spark output for complete showcase
-print("\n🔥 Testing Spark output for tuple format showcase:")
+print("\n🔥 Testing Spark output for ConditionTuple format showcase:")
 tuple_spark = tuple_showcase_fv.plan().to_spark(spark)
 print(f"   Spark DataFrame columns: {tuple_spark.columns}")
 print(f"   Spark DataFrame count: {tuple_spark.count()}")
 tuple_spark.show(3)
 
 # Test Polars output for complete showcase
-print("\n⚡ Testing Polars output for tuple format showcase:")
+print("\n⚡ Testing Polars output for ConditionTuple format showcase:")
 tuple_polars = tuple_showcase_fv.plan().to_polars()
 print(f"   Polars DataFrame type: {type(tuple_polars)}")
 print(f"   Polars DataFrame shape: {tuple_polars.shape}")
@@ -762,9 +762,9 @@ print("   Sample Polars data:")
 print(tuple_polars.head(3))
 
 print("\n🎯 Filter Functionality Tests Complete!")
-print("✅ Tuple format: ('status', '==', 'ACTIVE')  # Clean and concise!")
-print("✅ Multiple filters with tuples: [('age', '>', 30), ('country', 'in', ['US'])]")
-print("✅ All operators work with tuple formats")
+print("✅ ConditionTuple format: [c('status', '==', 'ACTIVE')]  # Clean and concise!")
+print("✅ Multiple filters with ConditionTuple: [c('age', '>', 30), c('country', 'in', ['US'])]")
+print("✅ All operators work with ConditionTuple formats")
 print("✅ Complex business scenarios with clean, readable filters")
 print("✅ Spark DataFrame output works with all filter types")
 print("✅ Polars DataFrame output works with all filter types (using lazy evaluation)")
@@ -857,11 +857,11 @@ try:
         active_polars_test.shape[0] > 0 and
         len(active_polars_test.columns) > 0
     )
-    validate_test(active_filter_works, "Single tuple equality filter with Spark/Pandas/Polars output (('status', '==', 'ACTIVE'))")
+    validate_test(active_filter_works, "Single ConditionTuple equality filter with Spark/Pandas/Polars output ([c('status', '==', 'ACTIVE')])")
 except Exception as e:
-    validate_test(False, f"Single tuple equality filter - Error: {e}")
+    validate_test(False, f"Single ConditionTuple equality filter - Error: {e}")
 
-# Test 9: Range filter using tuple format
+# Test 9: Range filter using ConditionTuple format
 try:
     mature_test = mature_users_fv.plan().to_pandas()
     mature_spark_test = mature_users_fv.plan().to_spark(spark)
@@ -874,11 +874,11 @@ try:
         mature_polars_test.shape[0] > 0 and
         len(mature_polars_test.columns) > 0
     )
-    validate_test(range_filter_works, "Tuple format range filters with Spark/Pandas/Polars output (('age', '>', 30))")
+    validate_test(range_filter_works, "ConditionTuple format range filters with Spark/Pandas/Polars output ([c('age', '>', 30)])")
 except Exception as e:
     validate_test(False, f"Tuple range filter - Error: {e}")
 
-# Test 10: IN filter using tuple format
+# Test 10: IN filter using ConditionTuple format
 try:
     us_uk_test = us_uk_fv.plan().to_pandas()
     us_uk_spark_test = us_uk_fv.plan().to_spark(spark)
@@ -891,7 +891,7 @@ try:
         us_uk_polars_test.shape[0] > 0 and
         len(us_uk_polars_test.columns) > 0
     )
-    validate_test(in_filter_works, "Tuple format IN filters with Spark/Pandas/Polars output (('country', 'in', ['US', 'UK']))")
+    validate_test(in_filter_works, "ConditionTuple format IN filters with Spark/Pandas/Polars output ([c('country', 'in', ['US', 'UK'])])")
 except Exception as e:
     validate_test(False, f"Tuple IN filter - Error: {e}")
 
@@ -911,9 +911,9 @@ try:
         multiple_polars_test.shape[0] >= 0 and
         len(multiple_polars_test.columns) > 0
     )
-    validate_test(multiple_works, "Multiple tuple filters with Spark/Pandas/Polars output [('credit_score', '>', 700), ('risk_category', '==', 'LOW')]")
+    validate_test(multiple_works, "Multiple ConditionTuple filters with Spark/Pandas/Polars output [c('credit_score', '>', 700), c('risk_category', '==', 'LOW')]")
 except Exception as e:
-    validate_test(False, f"Multiple tuple filters - Error: {e}")
+    validate_test(False, f"Multiple ConditionTuple filters - Error: {e}")
 
 # Test 12: Complex business scenario with tuple filters
 try:
@@ -931,11 +931,11 @@ try:
         complex_polars_test.shape[0] >= 0 and
         len(complex_polars_test.columns) > 0
     )
-    validate_test(complex_works, "Complex tuple format business scenarios with Spark/Pandas/Polars output")
+    validate_test(complex_works, "Complex ConditionTuple format business scenarios with Spark/Pandas/Polars output")
 except Exception as e:
-    validate_test(False, f"Complex tuple scenarios - Error: {e}")
+    validate_test(False, f"Complex ConditionTuple scenarios - Error: {e}")
 
-# Test 13: Complete tuple format showcase
+# Test 13: Complete ConditionTuple format showcase
 try:
     tuple_showcase_test = tuple_showcase_fv.plan().to_pandas()
     tuple_spark_test = tuple_showcase_fv.plan().to_spark(spark)
@@ -947,9 +947,9 @@ try:
         tuple_polars_test.shape[0] >= 0 and
         len(tuple_polars_test.columns) > 0
     )
-    validate_test(showcase_works, "Complete tuple format showcase with all operators and Spark/Pandas/Polars output")
+    validate_test(showcase_works, "Complete ConditionTuple format showcase with all operators and Spark/Pandas/Polars output")
 except Exception as e:
-    validate_test(False, f"Tuple format showcase - Error: {e}")
+    validate_test(False, f"ConditionTuple format showcase - Error: {e}")
 
 # Test 14: Polars lazy evaluation validation
 try:
@@ -979,7 +979,7 @@ if tests_passed == total_tests:
     print("   ✅ Query plan execution")
     print("   ✅ Feature group management")
     print("   ✅ Feature view creation")
-    print("   ✅ Tuple filter format: ('status', '==', 'ACTIVE')  # Clean and concise!")
+    print("   ✅ ConditionTuple filter format: [c('status', '==', 'ACTIVE')]  # Clean and concise!")
     print("   ✅ Multiple filters: [('age', '>', 30), ('country', 'in', ['US', 'UK'])]")
     print("   ✅ All operators (==, !=, >, >=, <, <=, in, not_in, is_null, is_not_null)")
     print("   ✅ Complex business scenarios with readable filters")
@@ -996,7 +996,7 @@ print(f"   Feature Views: {5 + 6}")  # Core views (5) + Filter views (6)
 print(f"   Total Features Available: {sum([len(accounts_data.columns), len(users_data.columns), len(transactions_data.columns), len(risk_data.columns)])}")
 print(f"   Sample Records: {len(accounts_data)}")
 print(f"   Filter Format: Tuple (clean and concise)")
-print(f"   Dictionary filter format: REMOVED ✅ (only tuple format supported)")
+print(f"   Dictionary filter format: REMOVED ✅ (only ConditionTuple format supported)")
 print(f"   Polars Implementation: Lazy evaluation ✅ (independent from pandas)")
 
 

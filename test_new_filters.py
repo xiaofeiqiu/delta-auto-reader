@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from feature_store_sdk.filters import (
     Condition, AndCondition, OrCondition, NotCondition,
-    FilterParser, condition, and_, or_, not_, make_condition
+    FilterParser, c
 )
 
 def create_test_data():
@@ -295,13 +295,13 @@ def main():
     print("🎉 All tests passed! Enhanced Filter DSL is working correctly.")
     print("\n📚 Usage Examples:")
     print("# Simple conditions")
-    print('where=[("age", ">", 25), ("status", "==", "ACTIVE")]')
+    print('where=[c("age", ">", 25), c("status", "==", "ACTIVE")]')
     print("\n# OR logic")
-    print('where=[("country", "==", "US") | ("country", "==", "UK")]')
+    print('where=[c("country", "==", "US") | c("country", "==", "UK")]')
     print("\n# Complex nested conditions") 
-    print('where=[("age", ">", 25), (("country", "==", "US") | ("segment", "==", "PREMIUM"))]')
+    print('where=[c("age", ">", 25), (c("country", "==", "US") | c("segment", "==", "PREMIUM"))]')
     print("\n# NOT logic")
-    print('where=[~("status", "==", "BANNED")]')
+    print('where=[~c("status", "==", "BANNED")]')
 
 if __name__ == "__main__":
     main()

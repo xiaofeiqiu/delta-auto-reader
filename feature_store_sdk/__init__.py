@@ -8,7 +8,7 @@ with automatic joins between feature groups.
 # Import filters module first (no external dependencies)
 from .filters import (
     Condition, AndCondition, OrCondition, NotCondition,
-    ConditionTuple, FilterParser, condition, and_, or_, not_, c
+    ConditionTuple, FilterParser, c
 )
 
 # Import other modules that might have dependencies
@@ -29,13 +29,13 @@ try:
         "Transform",
         # Filter DSL components
         "Condition", "AndCondition", "OrCondition", "NotCondition",
-        "ConditionTuple", "FilterParser", "condition", "and_", "or_", "not_", "c"
+        "ConditionTuple", "FilterParser", "c"
     ]
 except ImportError as e:
     # If dependencies are missing, only export filter components
     __all__ = [
         "Condition", "AndCondition", "OrCondition", "NotCondition",
-        "ConditionTuple", "FilterParser", "condition", "and_", "or_", "not_", "c"
+        "ConditionTuple", "FilterParser", "c"
     ]
     import warnings
     warnings.warn(f"Some dependencies missing: {e}. Only filter DSL is available.")
