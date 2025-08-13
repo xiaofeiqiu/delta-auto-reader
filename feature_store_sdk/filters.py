@@ -22,8 +22,9 @@ Examples:
     ]
 """
 
-from typing import Any, List, Union
+from typing import Any, List, Union, Dict
 from abc import ABC, abstractmethod
+import json
 
 
 class BaseCondition(ABC):
@@ -62,6 +63,31 @@ class BaseCondition(ABC):
     @abstractmethod
     def __repr__(self) -> str:
         pass
+    
+    def __str__(self) -> str:
+        """String representation for user-friendly display"""
+        return self.__repr__()
+    
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize condition to dictionary for JSON serialization"""
+        pass
+    
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BaseCondition':
+        """Deserialize condition from dictionary"""
+        pass
+    
+    def to_json(self) -> str:
+        """Serialize condition to JSON string"""
+        return json.dumps(self.to_dict(), indent=2)
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> 'BaseCondition':
+        """Deserialize condition from JSON string"""
+        data = json.loads(json_str)
+        return _deserialize_condition(data)
 
 
 class Condition(BaseCondition):
@@ -212,6 +238,27 @@ class Condition(BaseCondition):
         if self.operator in ["is_null", "is_not_null"]:
             return f"Condition({self.column} {self.operator})"
         return f"Condition({self.column} {self.operator} {self.value})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize condition to dictionary"""
+        return {
+            "type": "Condition",
+            "column": self.column,
+            "operator": self.operator,
+            "value": self.value
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Condition':
+        """Deserialize condition from dictionary"""
+        if data.get("type") != "Condition":
+            raise ValueError(f"Invalid condition type: {data.get('type')}")
+        
+        return cls(
+            column=data["column"],
+            operator=data["operator"],
+            value=data.get("value")
+        )
 
 
 class AndCondition(BaseCondition):
@@ -249,6 +296,34 @@ class AndCondition(BaseCondition):
     def __repr__(self) -> str:
         condition_strs = [str(cond) for cond in self.conditions]
         return f"({' AND '.join(condition_strs)})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize AND condition to dictionary"""
+        serialized_conditions = []
+        for cond in self.conditions:
+            if hasattr(cond, 'to_dict'):
+                serialized_conditions.append(cond.to_dict())
+            elif isinstance(cond, ConditionTuple):
+                serialized_conditions.append(cond._to_condition().to_dict())
+            else:
+                raise ValueError(f"Cannot serialize condition of type: {type(cond)}")
+        
+        return {
+            "type": "AndCondition",
+            "conditions": serialized_conditions
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AndCondition':
+        """Deserialize AND condition from dictionary"""
+        if data.get("type") != "AndCondition":
+            raise ValueError(f"Invalid condition type: {data.get('type')}")
+        
+        conditions = []
+        for cond_data in data["conditions"]:
+            conditions.append(_deserialize_condition(cond_data))
+        
+        return cls(*conditions)
 
 
 class OrCondition(BaseCondition):
@@ -286,6 +361,34 @@ class OrCondition(BaseCondition):
     def __repr__(self) -> str:
         condition_strs = [str(cond) for cond in self.conditions]
         return f"({' OR '.join(condition_strs)})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize OR condition to dictionary"""
+        serialized_conditions = []
+        for cond in self.conditions:
+            if hasattr(cond, 'to_dict'):
+                serialized_conditions.append(cond.to_dict())
+            elif isinstance(cond, ConditionTuple):
+                serialized_conditions.append(cond._to_condition().to_dict())
+            else:
+                raise ValueError(f"Cannot serialize condition of type: {type(cond)}")
+        
+        return {
+            "type": "OrCondition",
+            "conditions": serialized_conditions
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'OrCondition':
+        """Deserialize OR condition from dictionary"""
+        if data.get("type") != "OrCondition":
+            raise ValueError(f"Invalid condition type: {data.get('type')}")
+        
+        conditions = []
+        for cond_data in data["conditions"]:
+            conditions.append(_deserialize_condition(cond_data))
+        
+        return cls(*conditions)
 
 
 class NotCondition(BaseCondition):
@@ -310,6 +413,29 @@ class NotCondition(BaseCondition):
     
     def __repr__(self) -> str:
         return f"NOT({self.condition})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize NOT condition to dictionary"""
+        if hasattr(self.condition, 'to_dict'):
+            condition_dict = self.condition.to_dict()
+        elif isinstance(self.condition, ConditionTuple):
+            condition_dict = self.condition._to_condition().to_dict()
+        else:
+            raise ValueError(f"Cannot serialize condition of type: {type(self.condition)}")
+        
+        return {
+            "type": "NotCondition",
+            "condition": condition_dict
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'NotCondition':
+        """Deserialize NOT condition from dictionary"""
+        if data.get("type") != "NotCondition":
+            raise ValueError(f"Invalid condition type: {data.get('type')}")
+        
+        condition = _deserialize_condition(data["condition"])
+        return cls(condition)
 
 
 class FilterParser:
@@ -341,6 +467,58 @@ class FilterParser:
             return where
         
         raise ValueError(f"Unsupported where condition type: {type(where)}. Only ConditionTuple or BaseCondition is supported.")
+
+
+def _deserialize_condition(data: Dict[str, Any]) -> BaseCondition:
+    """
+    Factory function to deserialize any condition type from dictionary.
+    
+    Args:
+        data: Dictionary containing condition data with 'type' field
+        
+    Returns:
+        Appropriate BaseCondition subclass instance
+        
+    Raises:
+        ValueError: If condition type is not recognized
+    """
+    condition_type = data.get("type")
+    
+    if condition_type == "Condition":
+        return Condition.from_dict(data)
+    elif condition_type == "AndCondition":
+        return AndCondition.from_dict(data)
+    elif condition_type == "OrCondition":
+        return OrCondition.from_dict(data)
+    elif condition_type == "NotCondition":
+        return NotCondition.from_dict(data)
+    else:
+        raise ValueError(f"Unknown condition type: {condition_type}")
+
+
+def deserialize_condition(data: Union[str, Dict[str, Any]]) -> BaseCondition:
+    """
+    Public function to deserialize condition from JSON string or dictionary.
+    
+    Args:
+        data: JSON string or dictionary containing condition data
+        
+    Returns:
+        BaseCondition instance
+        
+    Examples:
+        # From JSON string
+        json_str = '{"type": "Condition", "column": "age", "operator": ">", "value": 25}'
+        condition = deserialize_condition(json_str)
+        
+        # From dictionary
+        data = {"type": "Condition", "column": "age", "operator": ">", "value": 25}
+        condition = deserialize_condition(data)
+    """
+    if isinstance(data, str):
+        data = json.loads(data)
+    
+    return _deserialize_condition(data)
 
 
 
@@ -457,3 +635,11 @@ class ConditionTuple(tuple):
             return f"c({self[0]!r}, {self[1]!r}, {self[2]!r})"
         else:
             return f"c{super().__repr__()}"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize ConditionTuple by converting to Condition first."""
+        return self._to_condition().to_dict()
+    
+    def to_json(self) -> str:
+        """Serialize ConditionTuple to JSON string."""
+        return self._to_condition().to_json()
