@@ -61,6 +61,11 @@ class BaseCondition(ABC):
         pass
     
     @abstractmethod
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression"""
+        pass
+    
+    @abstractmethod
     def __repr__(self) -> str:
         pass
     
@@ -234,6 +239,47 @@ class Condition(BaseCondition):
         else:
             raise ValueError(f"Unsupported operator for Polars: {self.operator}")
     
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression"""
+        import pyarrow.compute as pc
+        
+        if self.operator == "==":
+            return pc.equal(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == "!=":
+            return pc.not_equal(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == ">":
+            return pc.greater(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == ">=":
+            return pc.greater_equal(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == "<":
+            return pc.less(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == "<=":
+            return pc.less_equal(pc.field(self.column), pc.scalar(self.value))
+        elif self.operator == "in":
+            import pyarrow as pa
+            return pc.is_in(pc.field(self.column), value_set=pa.array(self.value))
+        elif self.operator == "not_in":
+            import pyarrow as pa
+            return pc.invert(pc.is_in(pc.field(self.column), value_set=pa.array(self.value)))
+        elif self.operator == "is_null":
+            return pc.is_null(pc.field(self.column))
+        elif self.operator == "is_not_null":
+            return pc.is_valid(pc.field(self.column))
+        elif self.operator == "between":
+            min_val, max_val = self.value
+            return pc.and_kleene(
+                pc.greater_equal(pc.field(self.column), pc.scalar(min_val)),
+                pc.less_equal(pc.field(self.column), pc.scalar(max_val))
+            )
+        elif self.operator == "starts_with":
+            return pc.starts_with(pc.field(self.column), pattern=self.value)
+        elif self.operator == "ends_with":
+            return pc.ends_with(pc.field(self.column), pattern=self.value)
+        elif self.operator == "contains":
+            return pc.match_substring(pc.field(self.column), pattern=self.value)
+        else:
+            raise ValueError(f"Unsupported operator for PyArrow: {self.operator}")
+    
     def __repr__(self) -> str:
         if self.operator in ["is_null", "is_not_null"]:
             return f"Condition({self.column} {self.operator})"
@@ -291,6 +337,16 @@ class AndCondition(BaseCondition):
         result = polars_conditions[0]
         for cond in polars_conditions[1:]:
             result = result & cond
+        return result
+    
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression"""
+        import pyarrow.compute as pc
+        
+        pyarrow_conditions = [cond.to_pyarrow_condition() for cond in self.conditions]
+        result = pyarrow_conditions[0]
+        for cond in pyarrow_conditions[1:]:
+            result = pc.and_kleene(result, cond)
         return result
     
     def __repr__(self) -> str:
@@ -358,6 +414,16 @@ class OrCondition(BaseCondition):
             result = result | cond
         return result
     
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression"""
+        import pyarrow.compute as pc
+        
+        pyarrow_conditions = [cond.to_pyarrow_condition() for cond in self.conditions]
+        result = pyarrow_conditions[0]
+        for cond in pyarrow_conditions[1:]:
+            result = pc.or_kleene(result, cond)
+        return result
+    
     def __repr__(self) -> str:
         condition_strs = [str(cond) for cond in self.conditions]
         return f"({' OR '.join(condition_strs)})"
@@ -411,6 +477,11 @@ class NotCondition(BaseCondition):
         """Convert to Polars expression"""
         return ~self.condition.to_polars_condition()
     
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression"""
+        import pyarrow.compute as pc
+        return pc.invert(self.condition.to_pyarrow_condition())
+    
     def __repr__(self) -> str:
         return f"NOT({self.condition})"
     
@@ -444,15 +515,16 @@ class FilterParser:
     """
     
     @staticmethod
-    def parse_where_conditions(where: Union['ConditionTuple', BaseCondition, None]) -> Union[BaseCondition, None]:
+    def parse_where_conditions(where: Union['ConditionTuple', BaseCondition, List, None]) -> Union[BaseCondition, None]:
         """
-        Parse where conditions from ConditionTuple or BaseCondition.
+        Parse where conditions from various formats.
         
         Args:
             where: Can be:
                 - None: No filtering
                 - ConditionTuple: Single ConditionTuple object
                 - BaseCondition: Complex condition from combining ConditionTuples with & and | operators
+                - List: List of tuples, ConditionTuples, or BaseConditions (combined with AND)
         
         Returns:
             Parsed condition object or None
@@ -466,7 +538,34 @@ class FilterParser:
         if isinstance(where, BaseCondition):
             return where
         
-        raise ValueError(f"Unsupported where condition type: {type(where)}. Only ConditionTuple or BaseCondition is supported.")
+        if isinstance(where, tuple):
+            # Convert regular tuple to ConditionTuple first, then to BaseCondition
+            return make_condition(ConditionTuple(*where))
+        
+        if isinstance(where, list):
+            if len(where) == 0:
+                return None
+            
+            # Convert all items in the list to BaseCondition objects
+            conditions = []
+            for item in where:
+                if isinstance(item, BaseCondition):
+                    conditions.append(item)
+                elif isinstance(item, ConditionTuple):
+                    conditions.append(item._to_condition())
+                elif isinstance(item, tuple):
+                    # Convert regular tuple to ConditionTuple first, then to BaseCondition
+                    conditions.append(make_condition(ConditionTuple(*item)))
+                else:
+                    raise ValueError(f"Unsupported item type in where list: {type(item)}")
+            
+            # Combine all conditions with AND
+            if len(conditions) == 1:
+                return conditions[0]
+            else:
+                return AndCondition(*conditions)
+        
+        raise ValueError(f"Unsupported where condition type: {type(where)}. Supported types: ConditionTuple, BaseCondition, List, or None.")
 
 
 def _deserialize_condition(data: Dict[str, Any]) -> BaseCondition:
@@ -520,6 +619,75 @@ def deserialize_condition(data: Union[str, Dict[str, Any]]) -> BaseCondition:
     
     return _deserialize_condition(data)
 
+
+def condition(column: str, operator: str, value: Any = None) -> Condition:
+    """
+    Create a Condition object directly.
+    
+    This is an alternative to using ConditionTuple and c() helper.
+    
+    Args:
+        column: Column name to filter on
+        operator: Comparison operator
+        value: Value to compare against (not needed for null checks)
+    
+    Returns:
+        Condition object
+    
+    Examples:
+        condition("age", ">", 25)
+        condition("status", "==", "ACTIVE")
+        condition("email", "is_not_null")
+    """
+    return Condition(column, operator, value)
+
+
+def and_(*conditions: BaseCondition) -> AndCondition:
+    """
+    Create an AND condition from multiple conditions.
+    
+    Args:
+        *conditions: Variable number of condition objects
+    
+    Returns:
+        AndCondition object
+    
+    Examples:
+        and_(condition("age", ">", 25), condition("country", "==", "US"))
+    """
+    return AndCondition(*conditions)
+
+
+def or_(*conditions: BaseCondition) -> OrCondition:
+    """
+    Create an OR condition from multiple conditions.
+    
+    Args:
+        *conditions: Variable number of condition objects
+    
+    Returns:
+        OrCondition object
+    
+    Examples:
+        or_(condition("country", "==", "US"), condition("country", "==", "UK"))
+    """
+    return OrCondition(*conditions)
+
+
+def not_(condition: BaseCondition) -> NotCondition:
+    """
+    Create a NOT condition from a condition.
+    
+    Args:
+        condition: Condition to negate
+    
+    Returns:
+        NotCondition object
+    
+    Examples:
+        not_(condition("status", "==", "BANNED"))
+    """
+    return NotCondition(condition)
 
 
 def c(*args) -> 'ConditionTuple':
@@ -624,6 +792,9 @@ class ConditionTuple(tuple):
             return other
         elif isinstance(other, ConditionTuple):
             return make_condition(other)
+        elif isinstance(other, tuple):
+            # Convert regular tuple to ConditionTuple first, then to BaseCondition
+            return make_condition(ConditionTuple(*other))
         else:
             raise TypeError(f"unsupported operand type for logical operation: {type(other)}")
     
@@ -643,3 +814,7 @@ class ConditionTuple(tuple):
     def to_json(self) -> str:
         """Serialize ConditionTuple to JSON string."""
         return self._to_condition().to_json()
+    
+    def to_pyarrow_condition(self):
+        """Convert to PyArrow compute expression by first converting to Condition."""
+        return self._to_condition().to_pyarrow_condition()
