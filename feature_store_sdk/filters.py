@@ -380,6 +380,25 @@ class AndCondition(BaseCondition):
             conditions.append(_deserialize_condition(cond_data))
         
         return cls(*conditions)
+    
+    def serialize(self) -> str:
+        """Serialize AndCondition to its string representation."""
+        return self.__repr__()
+    
+    @classmethod
+    def deserialize(cls, string_repr: str) -> 'AndCondition':
+        """Deserialize AndCondition from its string representation.
+        
+        Note: This is a complex reconstruction that requires parsing the string
+        representation and rebuilding the condition tree.
+        """
+        # This is complex to implement properly as it would need a full parser
+        # For now, raise an informative error
+        raise NotImplementedError(
+            "Complex condition deserialization is not implemented. "
+            "Only individual ConditionTuple objects can be deserialized. "
+            "Reconstruct complex conditions by deserializing individual parts."
+        )
 
 
 class OrCondition(BaseCondition):
@@ -455,6 +474,25 @@ class OrCondition(BaseCondition):
             conditions.append(_deserialize_condition(cond_data))
         
         return cls(*conditions)
+    
+    def serialize(self) -> str:
+        """Serialize OrCondition to its string representation."""
+        return self.__repr__()
+    
+    @classmethod
+    def deserialize(cls, string_repr: str) -> 'OrCondition':
+        """Deserialize OrCondition from its string representation.
+        
+        Note: This is a complex reconstruction that requires parsing the string
+        representation and rebuilding the condition tree.
+        """
+        # This is complex to implement properly as it would need a full parser
+        # For now, raise an informative error
+        raise NotImplementedError(
+            "Complex condition deserialization is not implemented. "
+            "Only individual ConditionTuple objects can be deserialized. "
+            "Reconstruct complex conditions by deserializing individual parts."
+        )
 
 
 class NotCondition(BaseCondition):
@@ -507,6 +545,25 @@ class NotCondition(BaseCondition):
         
         condition = _deserialize_condition(data["condition"])
         return cls(condition)
+    
+    def serialize(self) -> str:
+        """Serialize NotCondition to its string representation."""
+        return self.__repr__()
+    
+    @classmethod
+    def deserialize(cls, string_repr: str) -> 'NotCondition':
+        """Deserialize NotCondition from its string representation.
+        
+        Note: This is a complex reconstruction that requires parsing the string
+        representation and rebuilding the condition tree.
+        """
+        # This is complex to implement properly as it would need a full parser
+        # For now, raise an informative error
+        raise NotImplementedError(
+            "Complex condition deserialization is not implemented. "
+            "Only individual ConditionTuple objects can be deserialized. "
+            "Reconstruct complex conditions by deserializing individual parts."
+        )
 
 
 class FilterParser:
@@ -593,6 +650,288 @@ def _deserialize_condition(data: Dict[str, Any]) -> BaseCondition:
         return NotCondition.from_dict(data)
     else:
         raise ValueError(f"Unknown condition type: {condition_type}")
+
+
+def deserialize_condition_from_string(string_repr: str) -> BaseCondition:
+    """
+    Unified parser for any condition string representation.
+    
+    Args:
+        string_repr: String representation of a condition
+        
+    Returns:
+        BaseCondition instance
+        
+    Examples:
+        deserialize_condition_from_string("('age', '>', 25)")  # Returns ConditionTuple
+        deserialize_condition_from_string("(Condition(age > 25) AND Condition(status == ACTIVE))")  # Returns AndCondition
+    """
+    string_repr = string_repr.strip()
+    
+    if not string_repr:
+        raise ValueError("Empty string cannot be deserialized")
+    
+    return _parse_condition(string_repr)
+
+
+def _parse_condition(string_repr: str) -> BaseCondition:
+    """Parse conditions using recursive-descent algorithm."""
+    tokens = _tokenize(string_repr)
+    
+    # Handle empty token list (invalid input)
+    if not tokens:
+        if not string_repr.startswith('(') or not string_repr.endswith(')'):
+            raise ValueError(f"Invalid ConditionTuple string format: {string_repr}")
+        else:
+            raise ValueError(f"Unable to parse complex condition: {string_repr}")
+    
+    parser = _RecursiveDescentParser(tokens)
+    return parser.parse_expression()
+
+
+class _Token:
+    """Token for condition parser."""
+    def __init__(self, type_: str, value: str, position: int = 0):
+        self.type = type_
+        self.value = value
+        self.position = position
+    
+    def __repr__(self):
+        return f"Token({self.type}, {self.value!r})"
+
+
+class _RecursiveDescentParser:
+    """Recursive-descent parser for condition expressions."""
+    
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.position = 0
+        self.current_token = self.tokens[0] if tokens else None
+    
+    def advance(self):
+        """Move to the next token."""
+        self.position += 1
+        if self.position < len(self.tokens):
+            self.current_token = self.tokens[self.position]
+        else:
+            self.current_token = None
+    
+    def match(self, token_type):
+        """Check if current token matches expected type and advance if so."""
+        if self.current_token and self.current_token.type == token_type:
+            self.advance()
+            return True
+        return False
+    
+    def expect(self, token_type):
+        """Expect a specific token type and advance, or raise error."""
+        if not self.current_token or self.current_token.type != token_type:
+            raise ValueError(f"Expected {token_type}, but got {self.current_token.type if self.current_token else 'EOF'}")
+        self.advance()
+    
+    def parse_expression(self):
+        """Parse the top-level expression (OR has lowest precedence)."""
+        return self.parse_or_expression()
+    
+    def parse_or_expression(self):
+        """Parse OR expressions (lowest precedence)."""
+        left = self.parse_and_expression()
+        
+        while self.current_token and self.current_token.type == 'OR':
+            self.advance()  # consume 'OR'
+            right = self.parse_and_expression()
+            left = OrCondition(left, right)
+        
+        return left
+    
+    def parse_and_expression(self):
+        """Parse AND expressions (middle precedence)."""
+        left = self.parse_not_expression()
+        
+        while self.current_token and self.current_token.type == 'AND':
+            self.advance()  # consume 'AND'
+            right = self.parse_not_expression()
+            left = AndCondition(left, right)
+        
+        return left
+    
+    def parse_not_expression(self):
+        """Parse NOT expressions (highest precedence)."""
+        if self.current_token and self.current_token.type == 'NOT':
+            self.advance()  # consume 'NOT'
+            self.expect('LPAREN')  # expect '('
+            inner = self.parse_expression()  # recursively parse inner expression
+            self.expect('RPAREN')  # expect ')'
+            return NotCondition(inner)
+        
+        return self.parse_primary()
+    
+    def parse_primary(self):
+        """Parse primary expressions (atoms)."""
+        if not self.current_token:
+            raise ValueError("Unexpected end of input")
+        
+        # Handle parenthesized expressions
+        if self.current_token.type == 'LPAREN':
+            self.advance()  # consume '('
+            expr = self.parse_expression()  # recursively parse inner expression
+            self.expect('RPAREN')  # expect ')'
+            return expr
+        
+        # Handle Condition(...) format
+        if self.current_token.type == 'CONDITION':
+            return self._parse_condition_token()
+        
+        # Handle simple tuple format
+        if self.current_token.type == 'TUPLE':
+            return self._parse_tuple_token()
+        
+        raise ValueError(f"Unexpected token: {self.current_token}")
+    
+    def _parse_condition_token(self):
+        """Parse a Condition(column operator value) token."""
+        import re
+        
+        condition_str = self.current_token.value
+        self.advance()
+        
+        # Try to match Condition(column operator value) format first
+        match = re.match(r'Condition\((.+?)\s+(.+?)\s+(.+)\)', condition_str)
+        if match:
+            column, operator, value_str = match.groups()
+            value = _parse_condition_value(value_str)
+            return Condition(column, operator, value)
+        
+        # Try to match Condition(column operator) format for null operators
+        match = re.match(r'Condition\((.+?)\s+(is_null|is_not_null)\)', condition_str)
+        if match:
+            column, operator = match.groups()
+            return Condition(column, operator)
+        
+        raise ValueError(f"Invalid Condition format: {condition_str}")
+    
+    def _parse_tuple_token(self):
+        """Parse a simple tuple token."""
+        import ast
+        
+        tuple_str = self.current_token.value
+        self.advance()
+        
+        # Remove outer parentheses and parse
+        args_str = tuple_str[1:-1]
+        try:
+            args_tuple = ast.literal_eval(f"({args_str})")
+            if not isinstance(args_tuple, tuple):
+                args = (args_tuple,)
+            else:
+                args = args_tuple
+            return ConditionTuple(*args)
+        except (ValueError, SyntaxError) as e:
+            raise ValueError(f"Failed to parse ConditionTuple arguments from '{tuple_str}': {e}")
+
+
+def _tokenize(string_repr: str) -> list[_Token]:
+    """Tokenize condition string for Pratt parser."""
+    import re
+    
+    tokens = []
+    i = 0
+    string_repr = string_repr.strip()
+    
+    while i < len(string_repr):
+        # Skip whitespace
+        if string_repr[i].isspace():
+            i += 1
+            continue
+        
+        # NOT operator
+        if string_repr[i:i+3] == 'NOT':
+            tokens.append(_Token('NOT', 'NOT', i))
+            i += 3
+            continue
+        
+        # AND operator
+        if string_repr[i:i+3] == 'AND':
+            tokens.append(_Token('AND', 'AND', i))
+            i += 3
+            continue
+            
+        # OR operator  
+        if string_repr[i:i+2] == 'OR':
+            tokens.append(_Token('OR', 'OR', i))
+            i += 2
+            continue
+        
+        # Condition(...) token (must come before '(' check)
+        if string_repr[i:].startswith('Condition('):
+            # Find the matching closing paren for the Condition
+            paren_count = 1
+            j = i + 10  # Skip 'Condition('
+            while j < len(string_repr) and paren_count > 0:
+                if string_repr[j] == '(':
+                    paren_count += 1
+                elif string_repr[j] == ')':
+                    paren_count -= 1
+                j += 1
+            condition_str = string_repr[i:j]
+            tokens.append(_Token('CONDITION', condition_str, i))
+            i = j
+            continue
+        
+        # Left parenthesis
+        if string_repr[i] == '(':
+            # Check if this is a simple tuple (no operators inside)
+            # Look ahead to see what's inside this parenthesis
+            paren_count = 1
+            j = i + 1
+            has_operators = False
+            while j < len(string_repr) and paren_count > 0:
+                if string_repr[j] == '(':
+                    paren_count += 1
+                elif string_repr[j] == ')':
+                    paren_count -= 1
+                elif paren_count == 1:  # Only check at top level
+                    if (string_repr[j:j+5] == ' AND ' or 
+                        string_repr[j:j+4] == ' OR ' or
+                        string_repr[j:].startswith('Condition(')):
+                        has_operators = True
+                        break
+                j += 1
+            
+            if not has_operators and j <= len(string_repr):
+                # This is a simple tuple
+                tuple_str = string_repr[i:j]
+                tokens.append(_Token('TUPLE', tuple_str, i))
+                i = j
+            else:
+                # This is a grouping parenthesis
+                tokens.append(_Token('LPAREN', '(', i))
+                i += 1
+            continue
+        
+        # Right parenthesis
+        if string_repr[i] == ')':
+            tokens.append(_Token('RPAREN', ')', i))
+            i += 1
+            continue
+        
+        # If we get here, skip the character (shouldn't happen with valid input)
+        i += 1
+    
+    return tokens
+
+
+def _parse_condition_value(value_str: str):
+    """Parse a value from a condition string representation."""
+    import ast
+    
+    if value_str == 'None':
+        return None
+    
+    try:
+        return ast.literal_eval(value_str)
+    except (ValueError, SyntaxError):
+        return value_str
 
 
 def deserialize_condition(data: Union[str, Dict[str, Any]]) -> BaseCondition:
@@ -801,11 +1140,11 @@ class ConditionTuple(tuple):
     def __repr__(self) -> str:
         """String representation that shows this is a ConditionTuple."""
         if len(self) == 2:
-            return f"c({self[0]!r}, {self[1]!r})"
+            return f"({self[0]!r}, {self[1]!r})"
         elif len(self) == 3:
-            return f"c({self[0]!r}, {self[1]!r}, {self[2]!r})"
+            return f"({self[0]!r}, {self[1]!r}, {self[2]!r})"
         else:
-            return f"c{super().__repr__()}"
+            return super().__repr__()
     
     def to_dict(self) -> Dict[str, Any]:
         """Serialize ConditionTuple by converting to Condition first."""
@@ -818,3 +1157,27 @@ class ConditionTuple(tuple):
     def to_pyarrow_condition(self):
         """Convert to PyArrow compute expression by first converting to Condition."""
         return self._to_condition().to_pyarrow_condition()
+    
+    def serialize(self) -> str:
+        """Serialize ConditionTuple to its string representation."""
+        return self.__repr__()
+    
+    @classmethod
+    def deserialize(cls, string_repr: str) -> BaseCondition:
+        """Deserialize condition from its string representation.
+        
+        This method can handle both simple ConditionTuple strings and complex condition strings.
+        
+        Args:
+            string_repr: String representation like "('age', '>', 25)" for simple conditions
+                        or complex strings for compound conditions
+            
+        Returns:
+            BaseCondition instance (ConditionTuple for simple conditions, 
+                                   AndCondition/OrCondition/NotCondition for complex ones)
+            
+        Examples:
+            ConditionTuple.deserialize("('age', '>', 25)")  # Returns ConditionTuple
+            ConditionTuple.deserialize("(Condition(age > 25) AND Condition(status == ACTIVE))")  # Returns AndCondition
+        """
+        return deserialize_condition_from_string(string_repr)
