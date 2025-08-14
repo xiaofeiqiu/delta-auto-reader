@@ -22,9 +22,26 @@ Examples:
     ]
 """
 
-from typing import Any, List, Union, Dict
+from typing import Any, List, Union, Dict, Optional, Tuple
 from abc import ABC, abstractmethod
 import json
+
+# Delta Lake filter types (based on delta-rs FilterType definition)
+FilterLiteralType = Tuple[str, str, Any]
+FilterConjunctionType = List[FilterLiteralType]  
+FilterDNFType = List[FilterConjunctionType]
+FilterType = Union[FilterConjunctionType, FilterDNFType]
+
+# Try to import from deltalake if available, otherwise use our own types
+try:
+    from deltalake import DeltaTable
+    from deltalake.table import FilterType as DeltaFilterType
+    DELTALAKE_AVAILABLE = True
+    # Use the official FilterType if available
+    FilterType = DeltaFilterType
+except ImportError:
+    DELTALAKE_AVAILABLE = False
+    # Fallback to our own definition
 
 
 class BaseCondition(ABC):
@@ -35,34 +52,45 @@ class BaseCondition(ABC):
     
     def __and__(self, other: 'BaseCondition') -> 'AndCondition':
         """Support for & operator (AND logic)"""
-        return AndCondition(self, other)
+        # Flatten nested AND conditions
+        left_conditions = [self] if not isinstance(self, AndCondition) else self.conditions
+        right_conditions = [other] if not isinstance(other, AndCondition) else other.conditions
+        return AndCondition(*(left_conditions + right_conditions))
     
     def __or__(self, other: 'BaseCondition') -> 'OrCondition':
         """Support for | operator (OR logic)"""
-        return OrCondition(self, other)
+        # Flatten nested OR conditions
+        left_conditions = [self] if not isinstance(self, OrCondition) else self.conditions
+        right_conditions = [other] if not isinstance(other, OrCondition) else other.conditions
+        return OrCondition(*(left_conditions + right_conditions))
     
     def __invert__(self) -> 'NotCondition':
         """Support for ~ operator (NOT logic)"""
         return NotCondition(self)
     
     @abstractmethod
-    def to_spark_condition(self, df):
+    def to_spark_condition(self, df: Any) -> Any:
         """Convert to Spark SQL condition"""
         pass
     
     @abstractmethod
-    def to_pandas_condition(self, df):
+    def to_pandas_condition(self, df: Any) -> Any:
         """Convert to Pandas boolean mask"""
         pass
     
     @abstractmethod
-    def to_polars_condition(self):
+    def to_polars_condition(self) -> Any:
         """Convert to Polars expression"""
         pass
     
     @abstractmethod
-    def to_pyarrow_condition(self):
+    def to_pyarrow_condition(self) -> Any:
         """Convert to PyArrow compute expression"""
+        pass
+    
+    @abstractmethod
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter for DeltaTable.to_pandas()"""
         pass
     
     @abstractmethod
@@ -105,7 +133,7 @@ class Condition(BaseCondition):
         value: Value to compare against (not needed for null checks)
     """
     
-    def __init__(self, column: str, operator: str, value: Any = None):
+    def __init__(self, column: str, operator: str, value: Any = None) -> None:
         self.column = column
         self.operator = operator
         self.value = value
@@ -123,8 +151,9 @@ class Condition(BaseCondition):
             raise ValueError(f"Invalid operator '{self.operator}'. Must be one of: {valid_operators}")
         
         # Check if value is required for this operator
+        # Note: None is a valid value for == and != operators (NULL comparison)
         null_ops = ["is_null", "is_not_null"]
-        if self.operator not in null_ops and self.value is None:
+        if self.operator not in null_ops and self.value is None and self.operator not in ["==", "!="]:
             raise ValueError(f"Operator '{self.operator}' requires a value")
     
     def to_spark_condition(self, df):
@@ -280,6 +309,39 @@ class Condition(BaseCondition):
         else:
             raise ValueError(f"Unsupported operator for PyArrow: {self.operator}")
     
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter for DeltaTable.to_pandas()"""
+        # Delta Lake filter format: (column, operator, value) tuples
+        if self.operator == "==":
+            return [(self.column, "=", self.value)]
+        elif self.operator == "!=":
+            return [(self.column, "!=", self.value)]
+        elif self.operator == ">":
+            return [(self.column, ">", self.value)]
+        elif self.operator == ">=":
+            return [(self.column, ">=", self.value)]
+        elif self.operator == "<":
+            return [(self.column, "<", self.value)]
+        elif self.operator == "<=":
+            return [(self.column, "<=", self.value)]
+        elif self.operator == "in":
+            return [(self.column, "in", self.value)]
+        elif self.operator == "not_in":
+            return [(self.column, "not in", self.value)]
+        elif self.operator == "is_null":
+            return [(self.column, "=", None)]
+        elif self.operator == "is_not_null":
+            return [(self.column, "!=", None)]
+        elif self.operator == "between":
+            # Between needs to be represented as two conditions: >= min AND <= max
+            min_val, max_val = self.value
+            return [(self.column, ">=", min_val), (self.column, "<=", max_val)]
+        else:
+            # For string operations (starts_with, ends_with, contains), 
+            # Delta Lake doesn't support LIKE directly, so we'll fall back to PyArrow
+            raise ValueError(f"Operator '{self.operator}' not supported by Delta Lake filters. Use PyArrow filters instead.")
+    
+    
     def __repr__(self) -> str:
         if self.operator in ["is_null", "is_not_null"]:
             return f"Condition({self.column} {self.operator})"
@@ -348,6 +410,22 @@ class AndCondition(BaseCondition):
         for cond in pyarrow_conditions[1:]:
             result = pc.and_kleene(result, cond)
         return result
+    
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter for DeltaTable.to_pandas()"""
+        # AND conditions: flatten all condition tuples into a single conjunction
+        all_filters = []
+        for cond in self.conditions:
+            cond_filters = cond.to_delta_table_filter()
+            if isinstance(cond_filters, list) and len(cond_filters) > 0:
+                if isinstance(cond_filters[0], tuple):
+                    # This is a FilterConjunctionType (list of tuples)
+                    all_filters.extend(cond_filters)
+                else:
+                    # This is a FilterDNFType (list of lists of tuples) - flatten it
+                    for conj in cond_filters:
+                        all_filters.extend(conj)
+        return all_filters
     
     def __repr__(self) -> str:
         condition_strs = [str(cond) for cond in self.conditions]
@@ -443,6 +521,21 @@ class OrCondition(BaseCondition):
             result = pc.or_kleene(result, cond)
         return result
     
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter for DeltaTable.to_pandas()"""
+        # OR conditions: create a DNF (list of conjunctions)
+        dnf_filters = []
+        for cond in self.conditions:
+            cond_filters = cond.to_delta_table_filter()
+            if isinstance(cond_filters, list) and len(cond_filters) > 0:
+                if isinstance(cond_filters[0], tuple):
+                    # This is a FilterConjunctionType (list of tuples)
+                    dnf_filters.append(cond_filters)
+                else:
+                    # This is already a FilterDNFType (list of lists) - extend it
+                    dnf_filters.extend(cond_filters)
+        return dnf_filters
+    
     def __repr__(self) -> str:
         condition_strs = [str(cond) for cond in self.conditions]
         return f"({' OR '.join(condition_strs)})"
@@ -519,6 +612,41 @@ class NotCondition(BaseCondition):
         """Convert to PyArrow compute expression"""
         import pyarrow.compute as pc
         return pc.invert(self.condition.to_pyarrow_condition())
+    
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter for DeltaTable.to_pandas()"""
+        # NOT conditions are limited in Delta Lake filters
+        # We can only handle simple negations by converting operators
+        if isinstance(self.condition, Condition):
+            column = self.condition.column
+            operator = self.condition.operator
+            value = self.condition.value
+            
+            # Convert to opposite operator where possible
+            if operator == "==":
+                return [(column, "!=", value)]
+            elif operator == "!=":
+                return [(column, "=", value)]
+            elif operator == ">":
+                return [(column, "<=", value)]
+            elif operator == ">=":
+                return [(column, "<", value)]
+            elif operator == "<":
+                return [(column, ">=", value)]
+            elif operator == "<=":
+                return [(column, ">", value)]
+            elif operator == "in":
+                return [(column, "not in", value)]
+            elif operator == "not_in":
+                return [(column, "in", value)]
+            elif operator == "is_null":
+                return [(column, "!=", None)]
+            elif operator == "is_not_null":
+                return [(column, "=", None)]
+            else:
+                raise ValueError(f"NOT operation not supported for operator '{operator}' in Delta Lake filters")
+        else:
+            raise ValueError("Complex NOT conditions not supported in Delta Lake filters. Use PyArrow filters instead.")
     
     def __repr__(self) -> str:
         return f"NOT({self.condition})"
@@ -1157,6 +1285,10 @@ class ConditionTuple(tuple):
     def to_pyarrow_condition(self):
         """Convert to PyArrow compute expression by first converting to Condition."""
         return self._to_condition().to_pyarrow_condition()
+    
+    def to_delta_table_filter(self) -> FilterType:
+        """Convert to Delta Table filter by first converting to Condition."""
+        return self._to_condition().to_delta_table_filter()
     
     def serialize(self) -> str:
         """Serialize ConditionTuple to its string representation."""
