@@ -338,8 +338,8 @@ class Condition(BaseCondition):
             return [(self.column, ">=", min_val), (self.column, "<=", max_val)]
         else:
             # For string operations (starts_with, ends_with, contains), 
-            # Delta Lake doesn't support LIKE directly, so we'll fall back to PyArrow
-            raise ValueError(f"Operator '{self.operator}' not supported by Delta Lake filters. Use PyArrow filters instead.")
+            # Delta Lake uses PyArrow compute functions, not simple tuple filters
+            raise ValueError(f"Operator '{self.operator}' not supported by Delta Lake tuple filters. Use PyArrow filters instead.")
     
     
     def __repr__(self) -> str:
@@ -644,7 +644,7 @@ class NotCondition(BaseCondition):
             elif operator == "is_not_null":
                 return [(column, "=", None)]
             else:
-                raise ValueError(f"NOT operation not supported for operator '{operator}' in Delta Lake filters")
+                raise ValueError(f"NOT operation not supported for operator '{operator}' in Delta Lake tuple filters. Use PyArrow filters instead.")
         else:
             raise ValueError("Complex NOT conditions not supported in Delta Lake filters. Use PyArrow filters instead.")
     
